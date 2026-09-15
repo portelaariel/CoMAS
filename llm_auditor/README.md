@@ -86,9 +86,9 @@ each dimension to its supporting check IDs. A check can pass while an optional
 field is missing; `missing_fields` lists unavailable referenced fields, not
 necessarily blocking prerequisites. Schema version 2.0 and rules version 2.1 distinguish
 these results from earlier reports. Full proofs stay in JSON and Markdown;
-the expanded trace will need context-budgeting before the next LLM explanation
-phase. The frozen synthetic LLM inputs, prompt, schema and old results have
-not been changed.
+the explanation phase now uses the compact certificate described below instead
+of sending the expanded trace. The frozen synthetic LLM inputs, evaluator
+client, evaluation prompt, schema and old results have not been changed.
 
 Preserve previous reports by choosing new output names. Existing reports are
 protected unless `--overwrite` is explicitly supplied; input artifacts are
@@ -118,19 +118,83 @@ retained separately for reproducibility.
 
 ## LLM modes
 
-The explanation mode gives the deterministic verdict to the LLM and asks it
-only for a grounded explanation:
+### Compact explanation certificate (version 1.0)
+
+`--mode certificate` runs locally without Ollama. It adds
+`explanation_certificate`, `certificate_ledger`, and `certificate_context` to
+each audited episode. The certificate preserves the five deterministic verdicts,
+execution/claim context, per-layer counts, and every rule/status group, including
+`FAIL` and `UNKNOWN`. Repeated checks are grouped only after verification;
+votes are never pooled. Each group has an evidence ID such as `E06` and one
+example witness. Its witness is not a description of all member events.
+
+The ledger maps evidence IDs to every original `check_id`, which resolves to
+the full check and its `source_refs`. Long witness strings/lists are explicitly
+abbreviated; the full evidence is unchanged on disk. Hashes bind the certificate
+to the supplied audit data, but are not signatures or independent verification
+of the network. Logged-event counts do not imply distinct actions or agents.
+
+First inspect the certificate and its context estimate, using fresh filenames:
 
 ```bash
-python3 -m llm_auditor experiments/results/<run> \
-  --mode explain \
-  --model qwen3.5:9b \
-  --ollama-url http://127.0.0.1:12434
+python3 -m llm_auditor "$DDOS_RUN" --mode certificate \
+  --output "$DDOS_RUN/certificate_v1.json" \
+  --markdown-output "$DDOS_RUN/certificate_v1.md"
+
+jq '.episodes[] | {
+  verdicts: .explanation_certificate.verdicts,
+  coverage: .explanation_certificate.coverage,
+  context: .certificate_context
+}' "$DDOS_RUN/certificate_v1.json"
 ```
+
+The estimate is `ceil(UTF8 message bytes / 3)`, plus 900 output tokens and a
+256-token template/safety reserve. It is a heuristic, not model-specific
+tokenization or proof that Ollama retained the full input. An oversized estimate
+prevents sending the request; no failure/unknown group is silently removed to
+make it fit. If it does not fit, inspect the certificate before choosing a
+larger `--num-ctx` on the inference machine. The new client also requires normal
+completion (`done=true`, `done_reason="stop"`), valid token counters, an output
+below its token limit, and adequate observed context reserve. These checks
+detect obvious context/output problems, not every possible silent truncation
+or semantically unfinished sentence.
+
+The updated explanation mode sends **only this certificate**, not observations,
+full proofs, event IDs or the ledger. `certificate_explanation.py` is separate
+from the byte-frozen evaluator in `ollama.py`. The response contains `summary`
+and five `dimensions`, each with an exact verdict echo, `explanation`, and
+`evidence_ids`. Validation rejects changed categorical values, nonexistent or
+wrong-dimension references, and omission of a `FAIL`/`UNKNOWN` group citation.
+`ACCEPTED_STRUCTURALLY` does not prove that the free prose is factually correct:
+`grounding_validation.prose_factually_verified` remains false and manual review
+is required. There is no model-generated confidence score or mitigation action.
+
+For the Mac inference machine accessed through the server's reverse tunnel:
+
+```bash
+python3 -m llm_auditor "$DDOS_RUN" --mode explain \
+  --model qwen3.5:9b \
+  --ollama-url http://127.0.0.1:12435 \
+  --output "$DDOS_RUN/certificate_explain_v1.json" \
+  --markdown-output "$DDOS_RUN/certificate_explain_v1.md"
+
+jq '.episodes[].llm_explanation | {
+  status, error, result, grounding_validation, completion, context_budget, metrics
+}' "$DDOS_RUN/certificate_explain_v1.json"
+```
+
+Rejected/failed inference leaves the certificate, deterministic proof, error,
+and raw response (when received) in the report, with status `REJECTED` and CLI
+exit code 2. It never replaces the deterministic verdict. Preserve this report
+and choose another output name for a retry. Old explanation reports used a
+different output contract; keep them separately rather than overwriting them.
+
+### Experimental evaluation
 
 The evaluation mode hides the deterministic verdict and measures whether the
 LLM independently reaches the same classification. It is experimental and
-must not control mitigation:
+must not control mitigation. The frozen baseline is unchanged; certificates
+and previous LLM results are also excluded from its input:
 
 ```bash
 python3 -m llm_auditor experiments/results/<run> \
@@ -142,6 +206,10 @@ python3 -m llm_auditor experiments/results/<run> \
 Both LLM modes request an Ollama JSON Schema response and use temperature 0,
 seed 42, a 4096-token context, and `keep_alive=0` by default. The generated
 JSON records the inference parameters and Ollama timing counters.
+Explanation reports additionally retain completion metadata, the raw response,
+certificate/prompt hashes and structural-reference validation. Agreement with
+the deterministic labels in this mode is constrained by the schema and must
+not be reported as independent LLM classification accuracy.
 
 ## Synthetic protocol campaign
 

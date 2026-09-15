@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .core import audit_run, compare_verdicts, evaluation_evidence
+from .certificate import attach_certificate
+from .certificate_explanation import CertificateExplanationClient, context_budget
 from .ollama import OllamaAuditClient, OllamaAuditError
 
 
@@ -21,7 +23,17 @@ def apply_llm(
 ) -> Dict[str, Any]:
     for episode in report.get("episodes") or []:
         if mode == "explain":
-            episode["llm_explanation"] = client.explain(episode)
+            certificate = attach_certificate(episode)
+            episode["certificate_context"] = context_budget(certificate, client.num_ctx)
+            try:
+                episode["llm_explanation"] = client.explain(certificate)
+            except OllamaAuditError as exc:
+                # Keep the certificate, full proof and rejected response for
+                # inspection instead of losing them on an inference failure.
+                episode["llm_explanation"] = {
+                    **getattr(exc, "record", {}), "status": "REJECTED",
+                    "error": str(exc), "certificate_sha256": certificate["sha256"],
+                }
         elif mode == "evaluate":
             response = client.evaluate(evaluation_evidence(episode))
             episode["llm_evaluation"] = response
@@ -93,9 +105,32 @@ def render_markdown(report: Dict[str, Any], mode: str) -> str:
 
         explanation = episode.get("llm_explanation")
         evaluation = episode.get("llm_evaluation")
+        certificate = episode.get("explanation_certificate")
+        if certificate:
+            budget = episode["certificate_context"]
+            lines.extend([
+                "", "### Compact explanation certificate", "",
+                f"- Version: `{certificate['certificate_version']}`",
+                f"- SHA256: `{certificate['sha256']}`",
+                f"- Full checks / compact groups: `{certificate['coverage']['original_check_count']}` / "
+                f"`{len(certificate['evidence'])}`",
+                f"- Estimated context fits: `{budget['preflight_fits_estimate']}` "
+                f"(`{budget['estimated_total_tokens']}` / `{budget['num_ctx']}`)",
+                "- Token estimate is heuristic; it does not verify input completeness.",
+                "- Resolve evidence IDs via JSON certificate_ledger.groups, then checks.source_refs.",
+            ])
         if explanation:
-            result = explanation["result"]
-            lines.extend(["", "### LLM explanation", "", result["summary"], ""])
+            lines.extend(["", "### LLM explanation", ""])
+            if explanation.get("status") == "REJECTED":
+                lines.extend(["Rejected: " + explanation["error"], ""])
+            else:
+                result = explanation["result"]
+                lines.extend([result["summary"], ""])
+                for field, item in (result.get("dimensions") or {}).items():
+                    lines.append(f"- `{field}` = `{item['verdict']}`: {item['explanation']} "
+                                 f"(evidence: {', '.join(item['evidence_ids'])})")
+                if explanation.get("grounding_validation"):
+                    lines.extend(["", "Categorical echoes and references checked; free prose still requires manual review.", ""])
         if evaluation:
             result = evaluation["result"]
             agreement = episode["llm_vs_deterministic"]
@@ -114,8 +149,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("run_dir", type=Path)
     parser.add_argument(
-        "--mode", choices=("audit", "explain", "evaluate"), default="audit",
-        help="audit é determinístico; explain/evaluate consultam o Ollama",
+        "--mode", choices=("audit", "certificate", "explain", "evaluate"), default="audit",
+        help="audit/certificate são locais; explain/evaluate consultam o Ollama",
     )
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument(
@@ -150,8 +185,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise ValueError(f"relatório já existe: {path}; use outro nome ou --overwrite")
             path.parent.mkdir(parents=True, exist_ok=True)
         report = audit_run(args.run_dir, episode_gap_s=args.episode_gap_s)
-        if args.mode != "audit":
-            client = OllamaAuditClient(
+        if args.mode == "certificate":
+            for episode in report.get("episodes") or []:
+                certificate = attach_certificate(episode)
+                episode["certificate_context"] = context_budget(certificate, args.num_ctx)
+        elif args.mode in {"explain", "evaluate"}:
+            client_type = CertificateExplanationClient if args.mode == "explain" else OllamaAuditClient
+            client = client_type(
                 model=args.model,
                 base_url=args.ollama_url,
                 temperature=args.temperature,
@@ -174,6 +214,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"episodes:  {len(report['episodes'])}")
     print(f"json:      {output}")
     print(f"markdown:  {markdown}")
+    rejected = [episode["llm_explanation"]["error"] for episode in report.get("episodes") or []
+                if (episode.get("llm_explanation") or {}).get("status") == "REJECTED"]
+    if rejected:
+        for error in rejected:
+            print(f"explicação rejeitada (prova preservada): {error}", file=sys.stderr)
+        return 2
     return 0
 
 

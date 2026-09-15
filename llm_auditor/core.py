@@ -387,6 +387,12 @@ def evaluation_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
         "observations",
         "evidence_sources",
         "claim_records",
+        "explanation_certificate",
+        "certificate_ledger",
+        "certificate_context",
+        "llm_explanation",
+        "llm_evaluation",
+        "llm_vs_deterministic",
     }
     evidence = {key: value for key, value in record.items()
                 if key not in excluded}

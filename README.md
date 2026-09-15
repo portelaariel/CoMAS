@@ -495,6 +495,13 @@ campanha mede interpretação semântica da LLM, não desempenho ou escalabilida
 da rede real. Repetições das mesmas fixtures também não são tratadas como
 experimentos de rede independentes.
 
+A opção `--suite holdout-v1` executa 16 casos sintéticos novos com o contrato
+de inferência congelado, incluindo contraexemplos e evidência incompleta.
+Use `--manifest-only` antes da inferência para registrar entradas, oráculos e
+checksums. Essa validação mede o avaliador completo, não apenas o modelo;
+divergências devem ser revisadas também quanto ao escopo e às instruções do
+prompt. O procedimento está em `llm_auditor/README.md`.
+
 ## Como a detecção funciona
 
 ### 1. Leitura dos contadores OpenFlow

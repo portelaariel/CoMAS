@@ -13,10 +13,15 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .core import SCHEMA_VERSION, VERDICT_FIELDS, compare_verdicts
 from .ollama import OllamaAuditClient, OllamaAuditError
+from .validation_dataset import (
+    canonical_sha256,
+    current_contract_hashes,
+    load_holdout_dataset,
+)
 
 
 DOMAINS = ["192.168.10.10", "192.168.11.10"]
@@ -325,6 +330,21 @@ def summarize_campaign(report: Dict[str, Any]) -> Dict[str, Any]:
                 matches / len(case_rows) if case_rows else None
             ),
         }
+    group_results: Dict[str, Dict[str, Any]] = {}
+    for group in sorted({case.get("group", "development")
+                         for case in report.get("cases") or []}):
+        group_ids = {case["case_id"] for case in report["cases"]
+                     if case.get("group", "development") == group}
+        rows = [item for item in completed if item["case_id"] in group_ids]
+        matches = sum(item["comparison"]["all_match"] is True for item in rows)
+        group_results[group] = {
+            "unique_cases": len(group_ids),
+            "evaluations": len(rows),
+            "complete_matches": matches,
+            "complete_match_rate": matches / len(rows) if rows else None,
+        }
+    field_matches = sum(values["matches"] for values in fields.values())
+    fields_total = len(completed) * len(VERDICT_FIELDS)
     return {
         "evaluations_planned": len(report.get("cases") or [])
         * len(report.get("seeds") or []),
@@ -335,6 +355,12 @@ def summarize_campaign(report: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "field_results": fields,
         "case_results": by_case,
+        "group_results": group_results,
+        "individual_fields_matched": field_matches,
+        "individual_fields_evaluated": fields_total,
+        "individual_field_match_rate": (
+            field_matches / fields_total if fields_total else None
+        ),
     }
 
 
@@ -346,10 +372,13 @@ def new_report(
     temperature: float,
     num_ctx: int,
     keep_alive: Any,
+    suite: str = "development",
+    dataset_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     report = {
         "schema_version": SCHEMA_VERSION,
         "campaign_type": "synthetic-protocol-fixtures",
+        "suite": suite,
         "evidence_origin": "synthetic_protocol_fixture",
         "limitations": [
             "The fixtures are declared protocol examples, not network runs.",
@@ -369,7 +398,12 @@ def new_report(
         "cases": list(cases),
         "evaluations": [],
         "campaign_status": "RUNNING",
+        "evaluation_contract": current_contract_hashes(),
+        "selected_cases_sha256": canonical_sha256(list(cases)),
     }
+    if dataset_metadata:
+        report["dataset"] = dataset_metadata
+        report["limitations"].extend(dataset_metadata.get("limitations") or [])
     report["summary"] = summarize_campaign(report)
     return report
 
@@ -415,6 +449,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
         "Results measure interpretation only.",
         "",
         f"- Model: `{report['model']}`",
+        f"- Suite: `{report.get('suite', 'development')}`",
         f"- Seeds: `{', '.join(str(seed) for seed in report['seeds'])}`",
         f"- Status: `{report['campaign_status']}`",
         f"- Complete matches: `{summary['complete_matches']}/"
@@ -454,6 +489,16 @@ def render_markdown(report: Dict[str, Any]) -> str:
             f"| `{field}` | {values['matches']}/"
             f"{values['evaluations']} | {field_rate_text} |"
         )
+    lines.extend([
+        "", "## Case-group agreement", "",
+        "| Group | Unique cases | Complete matches |",
+        "| --- | ---: | ---: |",
+    ])
+    for group, values in summary["group_results"].items():
+        lines.append(
+            f"| {group} | {values['unique_cases']} | "
+            f"{values['complete_matches']}/{values['evaluations']} |"
+        )
     lines.extend(["", "## Limitations", ""])
     lines.extend(f"- {item}" for item in report["limitations"])
     lines.append("")
@@ -480,9 +525,11 @@ def _parse_keep_alive(value: str) -> Any:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    choices = [case["case_id"] for case in protocol_cases()]
     parser = argparse.ArgumentParser(
-        description="Avalia a interpretação de seis fixtures do protocolo CoMAS"
+        description="Avalia fixtures de desenvolvimento ou validação do CoMAS"
+    )
+    parser.add_argument(
+        "--suite", choices=("development", "holdout-v1"), default="development"
     )
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument(
@@ -494,22 +541,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-ctx", type=int, default=4096)
     parser.add_argument("--keep-alive", type=_parse_keep_alive, default="5m")
     parser.add_argument(
-        "--case", action="append", choices=choices,
+        "--case", action="append",
         help="executa somente o caso indicado; pode ser repetido",
     )
     parser.add_argument(
         "--output", type=Path, default=Path("llm_protocol_campaign.json")
     )
     parser.add_argument("--markdown-output", type=Path)
+    parser.add_argument(
+        "--manifest-only", action="store_true",
+        help="materializa entradas, oráculos e checksums sem consultar a LLM",
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true",
+        help="permite sobrescrever arquivos de saída existentes",
+    )
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     cases = protocol_cases()
+    metadata = None
+    if args.suite == "holdout-v1":
+        try:
+            dataset = load_holdout_dataset()
+        except (OSError, ValueError) as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            return 2
+        cases = dataset["cases"]
+        metadata = {key: value for key, value in dataset.items() if key != "cases"}
+        if args.temperature != 0.0 or args.num_ctx != 4096:
+            parser.error("holdout-v1 mantém temperature=0 e num_ctx=4096")
     if args.case:
         selected = set(args.case)
+        unknown = selected - {case["case_id"] for case in cases}
+        if unknown:
+            parser.error("casos ausentes da suite: " + ", ".join(sorted(unknown)))
         cases = [case for case in cases if case["case_id"] in selected]
+    if metadata:
+        metadata["subset_selected"] = len(cases) != 16
     report = new_report(
         cases,
         model=args.model,
@@ -517,18 +589,34 @@ def main(argv: Optional[List[str]] = None) -> int:
         temperature=args.temperature,
         num_ctx=args.num_ctx,
         keep_alive=args.keep_alive,
+        suite=args.suite,
+        dataset_metadata=metadata,
     )
     markdown = args.markdown_output or args.output.with_suffix(".md")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    markdown.parent.mkdir(parents=True, exist_ok=True)
+    if args.output.resolve() == markdown.resolve():
+        parser.error("JSON e Markdown precisam de caminhos diferentes")
+    if not args.overwrite and (args.output.exists() or markdown.exists()):
+        parser.error("saída já existe; use um novo nome ou --overwrite")
+    progress = 0
 
     def checkpoint(current: Dict[str, Any]) -> None:
+        nonlocal progress
         args.output.write_text(
             json.dumps(current, indent=2, sort_keys=True, ensure_ascii=False)
             + "\n",
             encoding="utf-8",
         )
         markdown.write_text(render_markdown(current), encoding="utf-8")
+        done = current["summary"]["evaluations_completed"]
+        if done > progress:
+            last = current["evaluations"][-1]
+            print(
+                f"progress: {done}/{current['summary']['evaluations_planned']} "
+                f"case={last['case_id']} seed={last['seed']} "
+                f"all_match={last['comparison']['all_match']}",
+                flush=True,
+            )
+            progress = done
 
     def client_factory(seed: int) -> OllamaAuditClient:
         return OllamaAuditClient(
@@ -541,15 +629,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        if args.manifest_only:
+            report["campaign_status"] = "MANIFEST_ONLY"
         checkpoint(report)
-        evaluate_campaign(
-            report, client_factory=client_factory, checkpoint=checkpoint
-        )
+        if not args.manifest_only:
+            evaluate_campaign(
+                report, client_factory=client_factory, checkpoint=checkpoint
+            )
     except (OSError, ValueError, OllamaAuditError) as exc:
         report["campaign_status"] = "PARTIAL_ERROR"
         report["error"] = str(exc)
         report["summary"] = summarize_campaign(report)
-        checkpoint(report)
+        try:
+            checkpoint(report)
+        except OSError:
+            pass
         print(f"erro: {exc}", file=sys.stderr)
         return 2
 

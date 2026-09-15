@@ -56,6 +56,8 @@ required_files=(
   llm_auditor/core.py
   llm_auditor/ollama.py
   llm_auditor/protocol_campaign.py
+  llm_auditor/validation_dataset.py
+  llm_auditor/fixtures/holdout_v1.json
   scripts/run_collaborative_benchmark.sh
   scripts/run_agentic_runtime_faults.sh
   scripts/run_agentic_authority_dry_run.sh

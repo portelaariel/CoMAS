@@ -44,7 +44,10 @@ def agreed_event(cid, timestamp, *, won):
         "authority": {
             "authorized": True,
             "code": "authorized_POLICY_DECISION",
-            "claim": {"won": won, "coordinator": "domain-0"},
+            "claim": {
+                "won": won, "coordinator": cid if won else "domain-0",
+                "key": "claim:flow", "claimed_ns": 190, "expires_ns": 1000,
+            },
         },
         "execution": {
             "attempted": False,
@@ -122,6 +125,7 @@ class LLMAuditorTests(unittest.TestCase):
             "event_id": "mcda:mitigate", "flow": FLOW,
             "decision": "MITIGATE", "evaluated_ns": 180,
             "participating_domains": DOMAINS,
+            "confirming_domains": DOMAINS, "min_domains": 2,
         }
         return [
             timeline_row("domain-0", 150, [waiting], [suspect]),
@@ -190,9 +194,8 @@ class LLMAuditorTests(unittest.TestCase):
             self.write_run(tmp, rows)
             episode = audit_run(Path(tmp))["episodes"][0]
         self.assertEqual(episode["protocol_consistency"], "INCONSISTENT")
-        check = next(item for item in episode["checks"]
-                     if item["name"] == "single_atomic_claim_winner")
-        self.assertEqual(check["status"], "FAIL")
+        self.assertTrue(any(item["name"] == "single_atomic_claim_winner"
+                            and item["status"] == "FAIL" for item in episode["checks"]))
 
     def test_benign_run_without_events_is_valid_empty_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -222,7 +225,8 @@ class LLMAuditorTests(unittest.TestCase):
             episode = audit_run(Path(tmp))["episodes"][0]
         self.assertEqual(episode["decision_stage"], "FINAL")
         self.assertEqual(episode["protocol_consistency"], "CONSISTENT")
-        self.assertEqual(episode["scenario_correctness"], "CORRECT")
+        # A protocol veto alone does not prove that a policy exception applied.
+        self.assertEqual(episode["scenario_correctness"], "UNKNOWN")
         self.assertEqual(episode["execution_status"], "NOT_REQUESTED")
 
     def test_intermediate_episode_does_not_inherit_run_classification(self):

@@ -13,57 +13,40 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from .rules import RULES_VERSION, VERDICT_FIELDS, verify_evidence
+from .runtime_evidence import normalize_episode
 
-SCHEMA_VERSION = "1.0"
-VERDICT_FIELDS = [
-    "protocol_consistency",
-    "scenario_correctness",
-    "decision_stage",
-    "execution_status",
-    "operational_effectiveness",
-]
-INTERMEDIATE_STATES = {
-    "NO_EVIDENCE",
-    "NO_PROPOSALS",
-    "SUSPECT",
-    "CORROBORATED",
-    "WAITING",
-    "WAITING_PROPOSALS",
-    "WAITING_QUORUM",
-    "WAITING_TOPOLOGY",
-    "WAITING_WINDOW",
-}
-FINAL_STATES = {
-    "AGREED",
-    "DISAGREED",
-    "MITIGATE",
-    "MODEL_MISMATCH",
-    "NORMAL",
-    "TOPOLOGY_MISMATCH",
-    "VETOED",
-}
+
+SCHEMA_VERSION = "2.0"
 
 
 def read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
+    if not path.exists():
         return default
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ValueError(f"invalid JSON in {path.name}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"expected an object in {path.name}")
+    return value
 
 
 def read_ndjson(path: Path) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return rows
-    for line in lines:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
         try:
             value = json.loads(line)
         except (TypeError, ValueError):
-            continue
+            raise ValueError(f"invalid JSON in {path.name}, line {line_number}")
         if isinstance(value, dict):
+            value["_audit_source_line"] = line_number
             rows.append(value)
+        else:
+            raise ValueError(f"expected an object in {path.name}, line {line_number}")
     return rows
 
 
@@ -132,6 +115,8 @@ def extract_decision_events(
                     "layer": layer,
                     "observed_by": observed_by,
                     "sampled_ns": sampled_ns,
+                    "source_line": row.get("_audit_source_line", row_index + 1),
+                    "source_pointer": f"/{section}/decision_events/{event_index}",
                 }
                 timestamp = event_time_ns(enriched)
                 if minimum_ns and timestamp and timestamp < minimum_ns:
@@ -144,6 +129,12 @@ def extract_decision_events(
                         f"{event_index}"
                     )
                     enriched["event_id"] = event_id
+                previous = seen.get(event_id)
+                if previous is not None:
+                    previous_payload = {key: value for key, value in previous.items() if key != "_audit"}
+                    new_payload = {key: value for key, value in enriched.items() if key != "_audit"}
+                    if previous_payload != new_payload:
+                        raise ValueError(f"conflicting payloads for event_id {event_id}")
                 seen.setdefault(event_id, enriched)
     return sorted(
         seen.values(),
@@ -222,12 +213,10 @@ def group_decision_events(
 def _run_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
     runs = summary.get("runs") if isinstance(summary, dict) else None
     if isinstance(runs, list) and runs and isinstance(runs[0], dict):
-        return runs[0]
+        if len(runs) != 1:
+            raise ValueError("summary.json must describe one run, not a campaign")
+        return {**runs[0], "_audit_summary_in_runs": True}
     return summary if isinstance(summary, dict) else {}
-
-
-def _check(name: str, status: str, evidence: Any) -> Dict[str, Any]:
-    return {"name": name, "status": status, "evidence": evidence}
 
 
 def _proposal_model_ids(event: Dict[str, Any]) -> List[str]:
@@ -245,6 +234,12 @@ def _proposal_model_ids(event: Dict[str, Any]) -> List[str]:
 
 def _scenario_correctness(metadata: Dict[str, Any],
                           summary: Dict[str, Any]) -> str:
+    # This is a run-level legacy summary only, not the episode's verifier.
+    if (metadata.get("ground_truth_available") is False
+            or summary.get("measurement_valid") is False
+            or summary.get("invalid_reasons") or summary.get("contamination_reasons")
+            or metadata.get("validation_status") in {"INVALID", "CONTAMINATED"}):
+        return "UNKNOWN"
     scenario = str(metadata.get("scenario") or "")
     classification = str(summary.get("classification") or "")
     if scenario not in {"benign", "ddos"}:
@@ -253,59 +248,6 @@ def _scenario_correctness(metadata: Dict[str, Any],
         return "CORRECT"
     if classification in {"FP", "FN"}:
         return "INCORRECT"
-    return "UNKNOWN"
-
-
-def _decision_stage(events: Sequence[Dict[str, Any]]) -> str:
-    states = {str(event.get("decision") or "") for event in events}
-    if states & FINAL_STATES:
-        return "FINAL"
-    if states & INTERMEDIATE_STATES:
-        return "INTERMEDIATE"
-    return "NO_DECISION"
-
-
-def _execution_status(events: Sequence[Dict[str, Any]], mode: str) -> str:
-    agent_events = [
-        event for event in events
-        if (event.get("_audit") or {}).get("layer") == "agentic"
-    ]
-    executions = [
-        event.get("execution") for event in agent_events
-        if isinstance(event.get("execution"), dict)
-    ]
-    if any(item.get("executed") is True for item in executions):
-        return "EXECUTED"
-    if any(item.get("attempted") is True for item in executions):
-        return "FAILED"
-    winners = [
-        event for event in agent_events
-        if (((event.get("authority") or {}).get("claim") or {}).get("won")
-            is True)
-    ]
-    if mode == "authority-dry-run" and winners:
-        return "DRY_RUN_SUPPRESSED"
-    if any(event.get("decision") == "AGREED" for event in agent_events):
-        return "SKIPPED_OTHER_COORDINATOR"
-    if _decision_stage(events) in {"FINAL", "INTERMEDIATE"}:
-        return "NOT_REQUESTED"
-    return "UNKNOWN"
-
-
-def _operational_effectiveness(execution_status: str,
-                               summary: Dict[str, Any]) -> str:
-    if execution_status in {
-        "DRY_RUN_SUPPRESSED", "NOT_REQUESTED", "SKIPPED_OTHER_COORDINATOR"
-    }:
-        return "NOT_APPLICABLE"
-    if execution_status == "FAILED":
-        return "INEFFECTIVE"
-    if execution_status == "EXECUTED":
-        disrupted = summary.get("attack_disrupted")
-        if disrupted is True:
-            return "EFFECTIVE"
-        if disrupted is False:
-            return "INEFFECTIVE"
     return "UNKNOWN"
 
 
@@ -336,309 +278,14 @@ def evaluate_episode(
     metadata: Dict[str, Any],
     summary: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Produz um veredito reproduzível sem consultar uma LLM."""
+    """Normalize each immutable observation and apply the versioned verifier."""
     events = list(episode.get("events") or [])
-    agent_events = [
-        event for event in events
-        if (event.get("_audit") or {}).get("layer") == "agentic"
-    ]
-    agreed = [event for event in agent_events
-              if event.get("decision") == "AGREED"]
-    authorized = [
-        event for event in agreed
-        if (event.get("authority") or {}).get("authorized") is True
-    ]
-    winners = [
-        event for event in authorized
-        if (((event.get("authority") or {}).get("claim") or {}).get("won")
-            is True)
-    ]
-    authorized_non_winners = [
-        event for event in authorized if event not in winners
-    ]
-    mode = str(
-        metadata.get("agentic_mode")
-        or next((event.get("mode") for event in agent_events
-                 if event.get("mode")), "")
-    )
-    checks: List[Dict[str, Any]] = []
-    required_unknown = False
-
-    if agreed:
-        quorum_rows = []
-        for event in agreed:
-            required = _integer(event.get("required_votes"), -1)
-            votes = sorted(set(str(value)
-                               for value in (event.get("mitigate_votes") or [])))
-            quorum_rows.append({
-                "event_id": event.get("event_id"),
-                "required": required,
-                "votes": votes,
-                "satisfied": required > 0 and len(votes) >= required,
-            })
-        if any(row["required"] <= 0 for row in quorum_rows):
-            quorum_status = "UNKNOWN"
-            required_unknown = True
-        else:
-            quorum_status = (
-                "PASS" if all(row["satisfied"] for row in quorum_rows)
-                else "FAIL"
-            )
-        checks.append(_check(
-            "agreed_has_required_quorum",
-            quorum_status,
-            {
-                "events": len(quorum_rows),
-                "satisfied": sum(row["satisfied"] for row in quorum_rows),
-                "invalid_event_ids": [
-                    row["event_id"] for row in quorum_rows
-                    if not row["satisfied"]
-                ],
-            },
-        ))
-
-        models = [_proposal_model_ids(event) for event in agreed]
-        if any(not values for values in models):
-            model_status = "UNKNOWN"
-            required_unknown = True
-        else:
-            model_status = "PASS" if all(len(values) == 1 for values in models) else "FAIL"
-        checks.append(_check(
-            "agreed_uses_one_model_per_event",
-            model_status,
-            {
-                "events": len(models),
-                "model_sets": sorted({tuple(values) for values in models}),
-                "invalid_event_count": sum(len(values) != 1 for values in models),
-            },
-        ))
-
-        if mode in {"authority-dry-run", "authority-live"}:
-            authority_status = (
-                "PASS" if len(authorized) == len(agreed) else "FAIL"
-            )
-            checks.append(_check(
-                "agreed_authorized_by_authority_gate",
-                authority_status,
-                {"authorized": len(authorized), "agreed": len(agreed)},
-            ))
-
-            winner_status = "PASS" if len(winners) == 1 else "FAIL"
-            checks.append(_check(
-                "single_atomic_claim_winner",
-                winner_status,
-                [
-                    str((event.get("_audit") or {}).get("observed_by")
-                        or ((event.get("authority") or {}).get("claim") or {})
-                        .get("coordinator") or "unknown")
-                    for event in winners
-                ],
-            ))
-
-            winner_execution = [event.get("execution") or {} for event in winners]
-            checks.append(_check(
-                "claim_winner_matches_would_execute",
-                "PASS" if len(winner_execution) == 1
-                and winner_execution[0].get("would_execute") is True else "FAIL",
-                winner_execution,
-            ))
-
-            non_winner_executions = [
-                event.get("execution") or {} for event in authorized_non_winners
-            ]
-            checks.append(_check(
-                "non_winners_do_not_actuate",
-                "PASS" if all(
-                    execution.get("attempted") is not True
-                    and execution.get("executed") is not True
-                    and execution.get("would_execute") is not True
-                    for execution in non_winner_executions
-                ) else "FAIL",
-                {"events": len(authorized_non_winners)},
-            ))
-
-            if mode == "authority-dry-run":
-                all_executions = [event.get("execution") or {}
-                                  for event in agent_events]
-                checks.append(_check(
-                    "dry_run_does_not_actuate",
-                    "PASS" if all(
-                        execution.get("attempted") is not True
-                        and execution.get("executed") is not True
-                        for execution in all_executions
-                    ) else "FAIL",
-                    {"execution_records": len(all_executions)},
-                ))
-    else:
-        waiting = [event for event in agent_events
-                   if event.get("decision") == "WAITING_PROPOSALS"]
-        if waiting:
-            checks.append(_check(
-                "waiting_proposals_identifies_missing_domains",
-                "PASS" if all(event.get("missing_domains") for event in waiting)
-                else "FAIL",
-                [event.get("missing_domains") for event in waiting],
-            ))
-        vetoed = [event for event in agent_events
-                  if event.get("decision") == "VETOED"]
-        if vetoed:
-            has_veto = all(
-                event.get("veto_domains")
-                or any(
-                    isinstance(proposal, dict)
-                    and proposal.get("proposal") == "VETO"
-                    for proposal in (event.get("proposals") or [])
-                )
-                for event in vetoed
-            )
-            checks.append(_check(
-                "vetoed_has_veto_evidence",
-                "PASS" if has_veto else "FAIL",
-                [event.get("veto_domains") for event in vetoed],
-            ))
-        disagreed = [event for event in agent_events
-                     if event.get("decision") == "DISAGREED"]
-        if disagreed:
-            has_normal = all(any(
-                isinstance(proposal, dict)
-                and proposal.get("proposal") == "NORMAL"
-                for proposal in (event.get("proposals") or [])
-            ) for event in disagreed)
-            checks.append(_check(
-                "disagreed_has_normal_proposal",
-                "PASS" if has_normal else "FAIL",
-                {"events": len(disagreed)},
-            ))
-        model_mismatch = [
-            event for event in agent_events
-            if event.get("decision") == "MODEL_MISMATCH"
-        ]
-        if model_mismatch:
-            mismatch_present = all(
-                len(_proposal_model_ids(event)) > 1
-                for event in model_mismatch
-            )
-            checks.append(_check(
-                "model_mismatch_has_distinct_models",
-                "PASS" if mismatch_present else "FAIL",
-                [_proposal_model_ids(event) for event in model_mismatch],
-            ))
-        mcda_normal = [event for event in events
-                       if (event.get("_audit") or {}).get("layer") == "mcda"
-                       and event.get("decision") == "NORMAL"]
-        if mcda_normal:
-            checks.append(_check(
-                "mcda_normal_has_no_confirming_domain",
-                "PASS" if all(not event.get("confirming_domains")
-                              for event in mcda_normal) else "FAIL",
-                {"events": len(mcda_normal)},
-            ))
-        mcda_mitigate = [event for event in events
-                         if (event.get("_audit") or {}).get("layer") == "mcda"
-                         and event.get("decision") == "MITIGATE"]
-        if mcda_mitigate:
-            quorum_evidence = []
-            for event in mcda_mitigate:
-                minimum = _integer(event.get("min_domains"), -1)
-                confirming = set(event.get("confirming_domains") or [])
-                quorum_evidence.append({
-                    "minimum": minimum,
-                    "confirming": len(confirming),
-                    "satisfied": minimum > 0 and len(confirming) >= minimum,
-                })
-            mcda_unknown = any(row["minimum"] <= 0 for row in quorum_evidence)
-            if mcda_unknown:
-                mcda_status = "UNKNOWN"
-                required_unknown = True
-            else:
-                mcda_status = (
-                    "PASS" if all(row["satisfied"] for row in quorum_evidence)
-                    else "FAIL"
-                )
-            checks.append(_check(
-                "mcda_mitigate_has_required_domains",
-                mcda_status,
-                {
-                    "events": len(mcda_mitigate),
-                    "satisfied": sum(
-                        row["satisfied"] for row in quorum_evidence
-                    ),
-                },
-            ))
-        intermediate = [
-            event for event in events
-            if str(event.get("decision") or "") in INTERMEDIATE_STATES
-        ]
-        if intermediate and not checks:
-            checks.append(_check(
-                "intermediate_state_is_non_terminal",
-                "PASS",
-                sorted({event.get("decision") for event in intermediate}),
-            ))
-
-    statuses = {check["status"] for check in checks}
-    if "FAIL" in statuses:
-        protocol_consistency = "INCONSISTENT"
-    elif required_unknown or not checks:
-        protocol_consistency = "INSUFFICIENT_EVIDENCE"
-    else:
-        protocol_consistency = "CONSISTENT"
-
-    decision_stage = _decision_stage(events)
-    execution_status = _execution_status(events, mode)
-    relevant_domains = sorted({
-        str(domain)
-        for event in events
-        for domain in (
-            list(event.get("relevant_domains") or [])
-            + list(event.get("participating_domains") or [])
-        )
-        if domain
-    })
-    claim_winners = sorted({
-        str((event.get("_audit") or {}).get("observed_by")
-            or ((event.get("authority") or {}).get("claim") or {})
-            .get("coordinator") or "unknown")
-        for event in winners
-    })
+    record = normalize_episode(events, metadata, summary)
     state_counts = Counter(str(event.get("decision") or "UNKNOWN")
                            for event in events)
     layer_counts = Counter(str((event.get("_audit") or {}).get("layer")
                                or "unknown") for event in events)
-    executions = [event.get("execution") or {} for event in agent_events
-                  if isinstance(event.get("execution"), dict)]
-    winner_executions = [event.get("execution") or {} for event in winners]
-    if (mode == "authority-dry-run" and len(winners) == 1
-            and winner_executions
-            and winner_executions[0].get("would_execute") is True
-            and winner_executions[0].get("attempted") is not True
-            and winner_executions[0].get("executed") is not True):
-        winner_behavior = "SELECTED_WOULD_EXECUTE_DRY_RUN_SUPPRESSED"
-    elif any(item.get("executed") is True for item in winner_executions):
-        winner_behavior = "EXECUTED"
-    elif any(item.get("attempted") is True for item in winner_executions):
-        winner_behavior = "ATTEMPTED_NOT_EXECUTED"
-    elif winners:
-        winner_behavior = "SELECTED_WITHOUT_EXECUTION_EVIDENCE"
-    else:
-        winner_behavior = "NO_CLAIM_WINNER"
-
-    non_winner_executions = [
-        event.get("execution") or {} for event in authorized_non_winners
-    ]
-    if authorized_non_winners and all(
-        item.get("attempted") is not True
-        and item.get("executed") is not True
-        and item.get("would_execute") is not True
-        for item in non_winner_executions
-    ):
-        non_winner_behavior = "ABSTAINED_OTHER_COORDINATOR"
-    elif authorized_non_winners:
-        non_winner_behavior = "UNEXPECTED_EXECUTION_EVIDENCE"
-    else:
-        non_winner_behavior = "NO_AUTHORIZED_NON_WINNER"
-
-    return {
+    record.update({
         "episode_id": episode["episode_id"],
         "flow": episode["flow"],
         "started_ns": episode["started_ns"],
@@ -647,7 +294,13 @@ def evaluate_episode(
         "event_counts_by_layer": dict(sorted(layer_counts.items())),
         "event_counts_by_state": dict(sorted(state_counts.items())),
         "transitions": _collapsed_transitions(events),
-        "relevant_domains": relevant_domains,
+        "relevant_domains": sorted({
+            str(domain) for event in events
+            for domain in (
+                list(event.get("relevant_domains") or [])
+                + list(event.get("participating_domains") or [])
+            ) if domain
+        }),
         "model_ids": sorted({
             model_id for event in events
             for model_id in _proposal_model_ids(event)
@@ -656,46 +309,10 @@ def evaluate_episode(
             (_integer(event.get("required_votes")) for event in events),
             default=0,
         ),
-        "quorum_reached": bool(agreed),
-        "claim_winners": claim_winners,
-        "execution_mode": mode or "unknown",
-        "normalized_facts": {
-            "agentic_agreed_events": len(agreed),
-            "agentic_authorized_events": len(authorized),
-            "atomic_claim_winner_events": len(winners),
-            "authorized_non_winner_events": len(authorized_non_winners),
-            "claim_winner_behavior": winner_behavior,
-            "authorized_non_winner_behavior": non_winner_behavior,
-            "attempted_execution_events": sum(
-                item.get("attempted") is True for item in executions
-            ),
-            "executed_events": sum(
-                item.get("executed") is True for item in executions
-            ),
-            "would_execute_events": sum(
-                item.get("would_execute") is True for item in executions
-            ),
-        },
-        "decision_stage": decision_stage,
-        "protocol_consistency": protocol_consistency,
-        "scenario_correctness": (
-            _scenario_correctness(metadata, summary)
-            if decision_stage == "FINAL" else "UNKNOWN"
-        ),
-        "execution_status": execution_status,
-        "operational_effectiveness": _operational_effectiveness(
-            execution_status, summary
-        ),
-        "checks": checks,
-        "source_event_ids": [str(event.get("event_id") or "")
-                             for event in events],
-        "laboratory_context": {
-            "scenario": metadata.get("scenario"),
-            "classification": summary.get("classification"),
-            "ground_truth_available": metadata.get("scenario")
-            in {"benign", "ddos"},
-        },
-    }
+        "source_event_ids": [str(event.get("event_id") or "") for event in events],
+    })
+    record.update(verify_evidence(record))
+    return record
 
 
 def audit_run(run_dir: Path, *, episode_gap_s: float = 15.0) -> Dict[str, Any]:
@@ -713,18 +330,26 @@ def audit_run(run_dir: Path, *, episode_gap_s: float = 15.0) -> Dict[str, Any]:
         read_ns(run_dir / "attack_start_ns.txt")
         if scenario == "ddos" else _integer(metadata.get("started_ns"))
     )
+    if scenario == "ddos" and minimum_ns <= 0:
+        # Without the attack boundary, benign priming windows may be present.
+        metadata = {**metadata, "ground_truth_available": False}
     events = extract_decision_events(
         read_ndjson(timeline_path),
         flow=str(metadata.get("flow") or "") or None,
         minimum_ns=minimum_ns,
     )
     grouped = group_decision_events(events, gap_s=episode_gap_s)
+    if len(grouped) > 1:
+        # A run-level disruption flag cannot attribute effectiveness to each
+        # separate episode. Episode-specific outcome artifacts are not present.
+        summary = {**summary, "_audit_outcome_scope_unknown": True}
     episodes = [evaluate_episode(episode, metadata, summary)
                 for episode in grouped]
     event_counts = Counter(str(event.get("decision") or "UNKNOWN")
                            for event in events)
     return {
         "schema_version": SCHEMA_VERSION,
+        "rules_version": RULES_VERSION,
         "audit_type": "post-experiment",
         "run": {
             "directory": str(run_dir),
@@ -756,6 +381,12 @@ def evaluation_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
         "protocol_consistency",
         "scenario_correctness",
         "source_event_ids",
+        "rules_version",
+        "verdict_support",
+        "limitations",
+        "observations",
+        "evidence_sources",
+        "claim_records",
     }
     evidence = {key: value for key, value in record.items()
                 if key not in excluded}

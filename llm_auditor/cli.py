@@ -42,6 +42,7 @@ def render_markdown(report: Dict[str, Any], mode: str) -> str:
         f"- Classification: `{run.get('classification')}`",
         f"- Agent mode: `{run.get('agentic_mode')}`",
         f"- Audit mode: `{mode}`",
+        f"- Rules version: `{report.get('rules_version', 'legacy')}`",
         f"- Events: `{report.get('events_seen')}`",
         f"- Status: `{run.get('audit_status')}`",
         "",
@@ -62,7 +63,7 @@ def render_markdown(report: Dict[str, Any], mode: str) -> str:
             f"- Execution status: `{episode['execution_status']}`",
             "- Operational effectiveness: "
             f"`{episode['operational_effectiveness']}`",
-            f"- Claim winner(s): `{', '.join(episode['claim_winners']) or 'none'}`",
+            f"- Claim winner(s): `{', '.join(episode.get('claim_winners') or []) or 'not observed'}`",
             "",
             "### Consolidated transitions",
             "",
@@ -74,7 +75,21 @@ def render_markdown(report: Dict[str, Any], mode: str) -> str:
             )
         lines.extend(["", "### Deterministic checks", ""])
         for check in episode["checks"]:
-            lines.append(f"- `{check['status']}` — `{check['name']}`")
+            lines.extend([
+                f"- `{check['status']}` — `{check['name']}` "
+                f"(`{check.get('dimension', 'protocol_consistency')}`)",
+                f"  - Rule: `{check.get('rule_id', check['name'])}`",
+                f"  - Reason: {check.get('reason', '')}",
+                "  - Evidence: `" + json.dumps(check['evidence'], ensure_ascii=False) + "`",
+            ])
+            if check.get("missing_fields"):
+                lines.append("  - Missing fields: `" + ", ".join(check["missing_fields"]) + "`")
+            for ref in check.get("source_refs") or []:
+                lines.append(
+                    f"  - Source: `{ref.get('artifact')}` "
+                    f"line `{ref.get('line', 'n/a')}`, pointer `{ref.get('pointer')}`"
+                    + (f", event `{ref['event_id']}`" if ref.get('event_id') else "")
+                )
 
         explanation = episode.get("llm_explanation")
         evaluation = episode.get("llm_evaluation")
@@ -113,12 +128,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--episode-gap-s", type=float, default=15.0)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--markdown-output", type=Path)
+    parser.add_argument("--overwrite", action="store_true",
+                        help="permite substituir relatórios existentes, nunca artefatos de entrada")
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    output = args.output or (args.run_dir / f"llm_audit_{args.mode}.json")
+    markdown = args.markdown_output or output.with_suffix(".md")
     try:
+        if output.resolve() == markdown.resolve():
+            raise ValueError("JSON e Markdown precisam de caminhos diferentes")
+        inputs = {(args.run_dir / name).resolve() for name in (
+            "metadata.json", "summary.json", "timeline.ndjson", "attack_start_ns.txt",
+        )}
+        for path in (output, markdown):
+            if path.resolve() in inputs:
+                raise ValueError(f"não é permitido substituir artefato de entrada: {path}")
+            if path.exists() and not args.overwrite:
+                raise ValueError(f"relatório já existe: {path}; use outro nome ou --overwrite")
+            path.parent.mkdir(parents=True, exist_ok=True)
         report = audit_run(args.run_dir, episode_gap_s=args.episode_gap_s)
         if args.mode != "audit":
             client = OllamaAuditClient(
@@ -130,17 +160,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 keep_alive=0,
             )
             apply_llm(report, mode=args.mode, client=client)
-    except (FileNotFoundError, ValueError, OllamaAuditError) as exc:
+        output.write_text(
+            json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        markdown.write_text(render_markdown(report, args.mode), encoding="utf-8")
+    except (OSError, ValueError, OllamaAuditError) as exc:
         print(f"erro: {exc}", file=sys.stderr)
         return 2
 
-    output = args.output or (args.run_dir / f"llm_audit_{args.mode}.json")
-    markdown = args.markdown_output or output.with_suffix(".md")
-    output.write_text(
-        json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    markdown.write_text(render_markdown(report, args.mode), encoding="utf-8")
     print(f"audit mode: {args.mode}")
     print(f"events:    {report['events_seen']}")
     print(f"episodes:  {len(report['episodes'])}")

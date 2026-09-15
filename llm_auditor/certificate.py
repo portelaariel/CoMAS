@@ -132,7 +132,7 @@ def build_certificate(episode: Dict[str, Any]) -> Dict[str, Any]:
             support[field].append(evidence_id)
 
     context_keys = (
-        "flow", "scope", "execution_mode", "agentic_policy_mode", "claim_winners",
+        "flow", "scope", "evidence_origin", "execution_mode", "agentic_policy_mode", "claim_winners",
         "normalized_facts", "execution_counts_by_layer", "event_counts_by_state",
         "event_counts_by_layer", "event_count", "laboratory_context",
     )

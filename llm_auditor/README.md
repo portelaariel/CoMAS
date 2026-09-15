@@ -211,6 +211,81 @@ certificate/prompt hashes and structural-reference validation. Agreement with
 the deterministic labels in this mode is constrained by the schema and must
 not be reported as independent LLM classification accuracy.
 
+## Explanation regression: violations and missing evidence
+
+`explanation_campaign.py` prepares certificates from the existing, previously
+inspected synthetic corpus. It does not read or modify a network run. By default
+it selects six critical cases, verified against their declared deterministic
+oracles before inference:
+
+- `h07`: insufficient mitigation votes and a contradictory NORMAL proposal.
+- `h08`: two owners under the explicitly declared single-claim invariant.
+- `h13`: VETOED reported despite explicitly absent veto evidence.
+- `h14`: actuation reported despite dry-run; execution and observed effectiveness
+  can coexist with a protocol violation in this synthetic example.
+- `h15`: missing prerequisite/execution evidence; unknown is not zero or suppression.
+- `h16`: execution recorded without operational observations; effectiveness remains UNKNOWN.
+
+The default is one serial inference per case, seed 42, temperature 0, context
+6144, and `keep_alive=0`. It uses the unchanged certificate explanation prompt
+and client, not the frozen independent evaluator. Synthetic origin is explicitly
+included in these certificates. Case titles, declared oracles, rationales and
+manual review targets stay outside the LLM input.
+
+First prepare the complete manifest without contacting Ollama:
+
+```bash
+python3 -m llm_auditor.explanation_campaign \
+  --manifest-only \
+  --output "$DDOS_RUN/critical_explanation_manifest_v1.json"
+
+jq '.summary | {cases_prepared, oracle_mismatches, estimated_context_oversized}' \
+  "$DDOS_RUN/critical_explanation_manifest_v1.json"
+```
+
+Then run the explanation regression through the Mac inference tunnel:
+
+```bash
+python3 -m llm_auditor.explanation_campaign \
+  --model qwen3.5:9b \
+  --ollama-url http://127.0.0.1:12435 \
+  --num-ctx 6144 \
+  --output "$DDOS_RUN/critical_explanations_seed42_v1.json"
+
+jq -r '
+  "Status: \(.campaign_status)",
+  "Accepted structurally: \(.summary.structurally_accepted)/\(.summary.evaluations_completed)",
+  "Manual review pending: \(.summary.pending_manual_review)",
+  (.evaluations[] | "\(.case_id): \(.llm_explanation.status)")
+' "$DDOS_RUN/critical_explanations_seed42_v1.json"
+```
+
+The inference report itself saves its prepared manifest before any network
+request, then checkpoints each response. It records dataset/source/prompt/schema
+hashes and reads Ollama version/model digest when available; unavailable metadata
+is marked with warnings. Existing files are protected unless `--overwrite` is
+explicitly requested. Use `--case h07 --case h15` to select a smaller initial
+subset; any such subset remains explicitly identified.
+
+Malformed/truncated or improperly cited outputs are rejected; remaining cases
+continue when a raw response exists. A no-response transport failure stops the
+campaign with `PARTIAL_ERROR`, retaining prior responses. Ctrl+C during inference
+marks it `INTERRUPTED`. Preserve partial results and choose new output names for
+retrying missing cases; the module does not silently repeat saved responses.
+An oracle mismatch or oversized context estimate prevents all inference with
+status `BLOCKED_PRECHECK`.
+
+`ACCEPTED_STRUCTURALLY` is not approval of the explanation's meaning. Each
+accepted answer remains `manual_review.status=PENDING`. Review whether it actually
+describes each FAIL/UNKNOWN cause, preserves FINAL versus valid decision, treats
+execution observations as stronger than intended dry-run, distinguishes unknown
+outcome from NOT_APPLICABLE, and avoids claiming real network measurements from
+synthetic records. Full text/proofs remain in JSON; Markdown shows the concise
+verdicts, review targets and generated explanations without the expanded source
+reference lists. No classification-accuracy metric is produced. This inspected
+corpus is regression material, not a new independent benchmark; the original
+frozen evaluator, fixture file and previous results are unchanged.
+
 ## Synthetic protocol campaign
 
 The protocol campaign isolates six declared fixtures: `AGREED` as claim

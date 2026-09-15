@@ -27,7 +27,38 @@ def _aggregate_counts(rows: List[Dict[str, Any]], key: str) -> Any:
     return known if known > 0 or (values and all(type(value) is int for value in values)) else None
 
 
-def normalize_event(event: Dict[str, Any], default_mode: str) -> Dict[str, Any]:
+def _execution_facts(execution: Dict[str, Any], layer: str) -> Dict[str, Any]:
+    """Keep the reported flag distinct from a legacy MCDA simulated attempt.
+
+    Mitigator marks attempted=true before its DRY_RUN early return. Only that
+    exact MCDA signature proves suppression; the agentic execution contract
+    does not have this exception. Missing flags/reasons are not filled in.
+    """
+    reported = _flag_count(execution.get("attempted"))
+    executed = _flag_count(execution.get("executed"))
+    attempted = reported
+    simulated = 0 if reported is not None else None
+    semantics = "REPORTED_ATTEMPT_FLAG"
+    if layer == "mcda" and reported == 1 and execution.get("reason") == "DRY_RUN" and executed == 0:
+        attempted, simulated = 0, 1
+        semantics = "MCDA_MITIGATOR_DRY_RUN_EARLY_RETURN"
+    elif layer == "mcda" and reported == 1 and executed != 1 and (
+        not execution.get("reason") or execution.get("reason") == "DRY_RUN"
+    ):
+        attempted, simulated = None, None
+        semantics = "UNKNOWN_MCDA_ATTEMPT_OR_SIMULATION"
+    elif layer == "mcda" and execution.get("reason") == "DRY_RUN":
+        simulated = None  # A malformed/incomplete signature is not a simulation proof.
+    return {
+        "recorded_attempted_execution_events": reported,
+        "attempted_execution_events": attempted, "executed_events": executed,
+        "simulated_execution_events": simulated, "attempt_semantics": semantics,
+    }
+
+
+def normalize_event(
+    event: Dict[str, Any], default_mode: str, *, mcda_mode: str = "",
+) -> Dict[str, Any]:
     audit = _mapping(event.get("_audit"))
     layer = audit.get("layer", "unknown")
     state = event.get("decision", "UNKNOWN")
@@ -42,12 +73,16 @@ def normalize_event(event: Dict[str, Any], default_mode: str) -> Dict[str, Any]:
     won = claim.get("won")
     authorized = authority.get("authorized")
     agreed = state == "AGREED" and layer == "agentic"
+    execution_facts = _execution_facts(execution, layer)
+    own_default_mode = mcda_mode if layer == "mcda" else default_mode
     record: Dict[str, Any] = {
         "source_event_id": event.get("event_id"),
         "scope": "local_agent_observation",
         "transitions": [{"layer": layer, "state": state, "observed_by": observer}],
         "event_counts_by_state": {state: 1},
-        "execution_mode": event.get("mode") or default_mode or "unknown",
+        "execution_mode": event.get("mode") or own_default_mode or "unknown",
+        "agentic_policy_mode": default_mode or "unknown",
+        "raw_execution": dict(execution),
         "authority_authorized": authorized if type(authorized) is bool else None,
         "claim_winners": [str(owner)] if won is True and owner else [] if won is False else None,
         "local_agent_is_claim_winner": won if type(won) is bool else None,
@@ -63,8 +98,7 @@ def normalize_event(event: Dict[str, Any], default_mode: str) -> Dict[str, Any]:
             "authorized_non_winner_events": (
                 int(authorized and not won) if type(authorized) is bool and type(won) is bool else None
             ) if agreed else 0,
-            "attempted_execution_events": _flag_count(execution.get("attempted")),
-            "executed_events": _flag_count(execution.get("executed")),
+            **execution_facts,
             "would_execute_events": _flag_count(execution.get("would_execute")),
         },
         "evidence_sources": {},
@@ -127,8 +161,20 @@ def normalize_event(event: Dict[str, Any], default_mode: str) -> Dict[str, Any]:
         "normalized_facts.executed_events": "execution.executed" if layer == "agentic" else "mitigation.executed",
     }.items():
         sources[key] = [ref(raw_path)]
-    if default_mode:
-        sources["execution_mode"].append({"artifact": "metadata.json", "pointer": "/agentic_mode"})
+    if own_default_mode:
+        sources["execution_mode"].append({
+            "artifact": "metadata.json", "pointer": "/mode" if layer == "mcda" else "/agentic_mode",
+        })
+    sources["agentic_policy_mode"] = [{"artifact": "metadata.json", "pointer": "/agentic_mode"}]
+    execution_path = "execution" if layer == "agentic" else "mitigation"
+    for key in ("attempted", "executed", "reason"):
+        sources[f"raw_execution.{key}"] = [ref(f"{execution_path}.{key}")]
+    sources["normalized_facts.recorded_attempted_execution_events"] = [ref(f"{execution_path}.attempted")]
+    interpretation_refs = [ref(f"{execution_path}.{key}") for key in ("attempted", "executed", "reason")]
+    sources["normalized_facts.simulated_execution_events"] = interpretation_refs
+    sources["normalized_facts.attempt_semantics"] = interpretation_refs
+    if layer == "mcda":
+        sources["normalized_facts.attempted_execution_events"] = interpretation_refs
     if isinstance(record.get("proposal_checks"), dict):
         for key in record["proposal_checks"]:
             sources[f"proposal_checks.{key}"] = [ref(f"proposal_checks.{key}")]
@@ -139,24 +185,43 @@ def normalize_episode(
     events: Sequence[Dict[str, Any]], metadata: Dict[str, Any], summary: Dict[str, Any],
 ) -> Dict[str, Any]:
     mode = str(metadata.get("agentic_mode") or "")
-    observations = [normalize_event(event, mode) for event in events]
+    observations = [normalize_event(event, mode, mcda_mode=str(metadata.get("mode") or "")) for event in events]
     agent = [row for row in observations if row["transitions"][0]["layer"] == "agentic"]
-    effective_modes = {row["execution_mode"] for row in agent}
+    mcda = [row for row in observations if row["transitions"][0]["layer"] == "mcda"]
+    effective_modes = {row["execution_mode"] for row in (agent or mcda)}
     effective_mode = next(iter(effective_modes)) if len(effective_modes) == 1 else "mixed" if effective_modes else mode or "unknown"
     agreed = [row for row in agent if "AGREED" in row["event_counts_by_state"]]
-    # MCDA execution is observational when agentic authority owns actuation.
+    authority_rows = agreed or agent or observations
+    # Include MCDA execution in shared data-plane outcomes. An observational
+    # baseline must never hide a real request or execution. Non-action states
+    # without execution records do not manufacture zero observations.
     action_rows = (
         [row for row in agent if row in agreed or any(
             type(row["normalized_facts"].get(key)) is int for key in
             ("attempted_execution_events", "executed_events")
         )] or agent
-    ) if agent else observations
+    ) if agent else []
+    action_rows += [row for row in mcda if "MITIGATE" in row["event_counts_by_state"] or row["raw_execution"]]
+    if not action_rows:
+        action_rows = agent or observations
     facts = {}
     for key in (
         "agentic_agreed_events", "agentic_authorized_events", "atomic_claim_winner_events",
-        "authorized_non_winner_events", "attempted_execution_events", "executed_events", "would_execute_events",
+        "authorized_non_winner_events", "would_execute_events",
     ):
+        facts[key] = _aggregate_counts([row["normalized_facts"] for row in authority_rows], key)
+    execution_keys = (
+        "recorded_attempted_execution_events", "attempted_execution_events",
+        "executed_events", "simulated_execution_events",
+    )
+    for key in execution_keys:
         facts[key] = _aggregate_counts([row["normalized_facts"] for row in action_rows], key)
+    counts_by_layer = {
+        layer: {key: _aggregate_counts([row["normalized_facts"] for row in action_rows
+                                      if row["transitions"][0]["layer"] == layer], key)
+                for key in execution_keys}
+        for layer in ("agentic", "mcda")
+    }
     winners = sorted({owner for row in agreed for owner in (row.get("claim_winners") or [])})
     non_winners = [row for row in agreed if row.get("authority_authorized") is True
                    and row.get("local_agent_is_claim_winner") is False]
@@ -237,10 +302,12 @@ def normalize_episode(
             for event in events if _mapping(_mapping(event.get("authority")).get("claim")).get("won") is True
         ],
         "execution_mode": effective_mode,
+        "agentic_policy_mode": mode or "unknown",
         "authority_authorized": all(row.get("authority_authorized") is True for row in agreed) if agreed and all(type(row.get("authority_authorized")) is bool for row in agreed) else None,
         "other_coordinator_elected": bool(known_coordinators) if non_winners else False,
         "known_claim_coordinator": known_coordinators[0] if len(known_coordinators) == 1 else None,
         "normalized_facts": facts, "quorum_reached": quorum,
+        "execution_counts_by_layer": counts_by_layer,
         "laboratory_context": laboratory,
         "operational_evidence": {
             "observations_available": type(summary.get("attack_disrupted")) is bool and summary.get("measurement_valid") is not False and not summary.get("invalid_reasons") and not summary.get("contamination_reasons") and not summary.get("_audit_outcome_scope_unknown"),

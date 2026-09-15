@@ -239,7 +239,7 @@ class RuntimeVerifierTests(unittest.TestCase):
     def test_no_inference_occurs_in_audit_mode(self):
         with patch("llm_auditor.ollama.OllamaAuditClient._chat", side_effect=AssertionError("LLM forbidden")):
             result = self.audit(runtime_fixtures.LLMAuditorTests().valid_rows())
-        self.assertEqual(result["rules_version"], "2.0")
+        self.assertEqual(result["rules_version"], "2.1")
 
     def test_malformed_metadata_is_not_treated_as_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -285,6 +285,145 @@ class RuntimeVerifierTests(unittest.TestCase):
         rows = runtime_fixtures.LLMAuditorTests().valid_rows()
         del rows[1]["collaboration"]["decision_events"][0]["min_domains"]
         self.assertEqual(self.audit(rows)["protocol_consistency"], "INSUFFICIENT_EVIDENCE")
+
+
+class MCDAExecutionContractTests(unittest.TestCase):
+    audit = RuntimeVerifierTests.audit
+
+    def mcda_event(self, mitigation, timestamp=180):
+        event = {
+            "event_id": f"mcda:mitigate:{timestamp}", "flow": runtime_fixtures.FLOW,
+            "decision": "MITIGATE", "evaluated_ns": timestamp,
+            "confirming_domains": runtime_fixtures.DOMAINS, "min_domains": 2,
+        }
+        if mitigation is not None:
+            event["mitigation"] = mitigation
+        return event
+
+    def mixed_rows(self, mitigation):
+        return [timeline_row("domain-0", 200, [agreed_event("domain-0", 200, won=True)],
+                             [self.mcda_event(mitigation)])]
+
+    def test_exact_confirmed_mcda_signature_is_intent_not_a_request(self):
+        raw = {"attempted": True, "executed": False, "reason": "DRY_RUN"}
+        rows = self.mixed_rows(raw)
+        before = copy.deepcopy(rows)
+        result = self.audit(rows)
+        observation = next(row for row in result["observations"] if row["transitions"][0]["layer"] == "mcda")
+        self.assertEqual(rows, before)
+        self.assertEqual(observation["raw_execution"], raw)
+        self.assertEqual(observation["execution_mode"], "collaborative-dry-run")
+        self.assertEqual(observation["agentic_policy_mode"], "authority-dry-run")
+        self.assertEqual(observation["normalized_facts"]["recorded_attempted_execution_events"], 1)
+        self.assertEqual(observation["normalized_facts"]["attempted_execution_events"], 0)
+        self.assertEqual(observation["normalized_facts"]["simulated_execution_events"], 1)
+        self.assertEqual(result["protocol_consistency"], "CONSISTENT")
+        self.assertEqual(result["execution_status"], "DRY_RUN_SUPPRESSED")
+        proof = next(check for check in result["checks"] if check["name"] == "mcda_simulated_attempt_has_dry_run_evidence")
+        self.assertEqual(proof["status"], "PASS")
+        self.assertTrue(any(ref["pointer"] == "/collaboration/decision_events/0/mitigation/reason"
+                            for ref in proof["source_refs"]))
+
+    def test_nine_simulation_records_in_41_event_episode_do_not_change_agent_facts(self):
+        # Reproduce the reported episode's shape, not an independent network run.
+        rows = runtime_fixtures.LLMAuditorTests().valid_rows()[:1]
+        for index in range(20):
+            rows.append(timeline_row("domain-0", 180 + index, mcda_events=[self.mcda_event({
+                "attempted": index < 9, "executed": False,
+                "reason": "DRY_RUN" if index < 9 else "decisão executada pelo coordenador domain-0",
+            }, 180 + index)]))
+        for index in range(19):
+            cid = "domain-0" if index == 0 else "domain-1"
+            rows.append(timeline_row(cid, 200 + index, [agreed_event(cid, 200 + index, won=index == 0)]))
+        result = self.audit(rows)
+        self.assertEqual(result["event_count"], 41)
+        self.assertEqual(result["protocol_consistency"], "CONSISTENT")
+        self.assertEqual(result["scenario_correctness"], "CORRECT")
+        self.assertEqual(result["decision_stage"], "FINAL")
+        self.assertEqual(result["execution_status"], "DRY_RUN_SUPPRESSED")
+        self.assertEqual(result["operational_effectiveness"], "NOT_APPLICABLE")
+        facts = result["normalized_facts"]
+        self.assertEqual(facts["agentic_agreed_events"], 19)
+        self.assertEqual(facts["atomic_claim_winner_events"], 1)
+        self.assertEqual(facts["authorized_non_winner_events"], 18)
+        self.assertEqual(facts["recorded_attempted_execution_events"], 9)
+        self.assertEqual(facts["simulated_execution_events"], 9)
+        self.assertEqual(facts["attempted_execution_events"], 0)
+        self.assertEqual(facts["executed_events"], 0)
+        self.assertEqual(result["execution_counts_by_layer"]["agentic"]["attempted_execution_events"], 0)
+        self.assertEqual(result["execution_counts_by_layer"]["mcda"]["simulated_execution_events"], 9)
+
+    def test_real_mcda_request_in_dry_run_is_still_a_violation(self):
+        result = self.audit(self.mixed_rows({"attempted": True, "executed": False, "reason": "FlowBlocker HTTP 503"}))
+        self.assertEqual(result["protocol_consistency"], "INCONSISTENT")
+        self.assertEqual(result["normalized_facts"]["attempted_execution_events"], 1)
+        self.assertEqual(result["normalized_facts"]["simulated_execution_events"], 0)
+        self.assertEqual(result["execution_status"], "FAILED")
+
+    def test_real_mcda_execution_cannot_hide_behind_selected_agent_suppression(self):
+        result = self.audit(self.mixed_rows({"attempted": True, "executed": True, "reason": "FlowBlocker HTTP 200"}))
+        self.assertEqual(result["protocol_consistency"], "INCONSISTENT")
+        self.assertEqual(result["execution_status"], "EXECUTED")
+        self.assertEqual(result["normalized_facts"]["executed_events"], 1)
+        self.assertEqual(result["normalized_facts"]["claim_winner_behavior"], "SELECTED_WOULD_EXECUTE_DRY_RUN_SUPPRESSED")
+
+    def test_contradictory_dry_run_marker_does_not_suppress_executed_true(self):
+        result = self.audit(self.mixed_rows({"attempted": True, "executed": True, "reason": "DRY_RUN"}))
+        self.assertEqual(result["execution_status"], "EXECUTED")
+        self.assertEqual(result["protocol_consistency"], "INCONSISTENT")
+        check = next(check for check in result["checks"] if check["name"] == "mcda_simulated_attempt_has_dry_run_evidence")
+        self.assertEqual(check["status"], "FAIL")
+
+    def test_missing_reason_leaves_mcda_attempt_or_simulation_unknown(self):
+        result = self.audit(self.mixed_rows({"attempted": True, "executed": False}))
+        self.assertEqual(result["protocol_consistency"], "INSUFFICIENT_EVIDENCE")
+        self.assertEqual(result["execution_status"], "UNKNOWN")
+        self.assertIsNone(result["normalized_facts"]["attempted_execution_events"])
+        self.assertEqual(result["normalized_facts"]["recorded_attempted_execution_events"], 1)
+
+    def test_dry_run_reason_without_explicit_non_execution_is_not_suppression_proof(self):
+        result = self.audit(self.mixed_rows({"attempted": True, "reason": "DRY_RUN"}))
+        self.assertEqual(result["protocol_consistency"], "INSUFFICIENT_EVIDENCE")
+        self.assertEqual(result["execution_status"], "UNKNOWN")
+        self.assertIsNone(result["normalized_facts"]["simulated_execution_events"])
+
+    def test_missing_mcda_mitigation_record_cannot_prove_non_actuation(self):
+        result = self.audit(self.mixed_rows(None))
+        self.assertEqual(result["protocol_consistency"], "INSUFFICIENT_EVIDENCE")
+        self.assertEqual(result["execution_status"], "UNKNOWN")
+
+    def test_agentic_attempt_has_no_mcda_simulation_exception(self):
+        rows = self.mixed_rows({"attempted": True, "executed": False, "reason": "DRY_RUN"})
+        rows[0]["agentic"]["decision_events"][0]["execution"].update(attempted=True, reason="DRY_RUN")
+        result = self.audit(rows)
+        self.assertEqual(result["protocol_consistency"], "INCONSISTENT")
+        self.assertEqual(result["execution_counts_by_layer"]["agentic"]["attempted_execution_events"], 1)
+        self.assertEqual(result["execution_counts_by_layer"]["agentic"]["simulated_execution_events"], 0)
+
+    def test_live_authority_forbids_mcda_actuation_even_when_own_mode_is_live(self):
+        rows = self.mixed_rows({"attempted": True, "executed": True, "reason": "FlowBlocker HTTP 200"})
+        rows[0]["agentic"]["decision_events"][0]["mode"] = "authority-live"
+        result = self.audit(rows, metadata={"mode": "collaborative-live", "agentic_mode": "authority-live"})
+        self.assertEqual(result["execution_status"], "EXECUTED")
+        self.assertEqual(result["protocol_consistency"], "INCONSISTENT")
+        check = next(check for check in result["checks"] if check["name"] == "mcda_does_not_actuate_under_agentic_live_authority")
+        self.assertEqual(check["status"], "FAIL")
+
+    def test_observational_live_mcda_with_explicit_no_actuation_is_valid(self):
+        rows = self.mixed_rows({"attempted": False, "executed": False, "reason": "MCDA observacional durante authority-live"})
+        agent = rows[0]["agentic"]["decision_events"][0]
+        agent["mode"] = "authority-live"
+        agent["execution"].update(attempted=True, executed=True, reason="FlowBlocker HTTP 200")
+        result = self.audit(rows, metadata={"mode": "collaborative-live", "agentic_mode": "authority-live"})
+        self.assertEqual(result["protocol_consistency"], "CONSISTENT")
+        self.assertEqual(result["execution_status"], "EXECUTED")
+
+    def test_mcda_only_simulation_has_suppressed_not_failed_execution(self):
+        event = self.mcda_event({"attempted": True, "executed": False, "reason": "DRY_RUN"})
+        result = self.audit([timeline_row("domain-0", 200, mcda_events=[event])], metadata={"agentic_mode": "shadow"})
+        self.assertEqual(result["protocol_consistency"], "CONSISTENT")
+        self.assertEqual(result["execution_mode"], "collaborative-dry-run")
+        self.assertEqual(result["execution_status"], "DRY_RUN_SUPPRESSED")
 
 
 class VerifierCLITests(unittest.TestCase):

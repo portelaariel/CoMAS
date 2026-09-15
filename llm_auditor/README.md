@@ -12,7 +12,7 @@ facts and the documented rules:
 python3 -m llm_auditor experiments/results/<run> --mode audit
 ```
 
-## Evidence-based deterministic verifier (rules 2.0)
+## Evidence-based deterministic verifier (rules 2.1)
 
 `rules.py` is a pure verifier; `runtime_evidence.py` adapts immutable runtime
 events without importing the controller. The five dimensions are independent:
@@ -56,12 +56,35 @@ Malformed JSON and conflicting duplicate event payloads are rejected rather
 than silently discarded. An absent attack-start boundary leaves DDoS episode
 ground truth unknown because benign priming windows may be present.
 
+Rules 2.1 correct the interpretation of legacy MCDA simulations. That layer's
+`Mitigator` sets `attempted=true` before returning early on `DRY_RUN`; only the
+exact MCDA signature `attempted=true`, `executed=false`, `reason="DRY_RUN"`
+is normalized as simulated intent rather than an actual request. Each
+observation preserves the original dictionary in `raw_execution`. Facts expose
+`recorded_attempted_execution_events` separately from
+`attempted_execution_events` and `simulated_execution_events`, with references
+to all three source fields and a named interpretation. Missing reasons/outcomes
+do not prove suppression. This exception never applies to agentic execution
+records, and `executed=true` always remains an execution even alongside a
+contradictory `DRY_RUN` marker.
+
+The MCDA layer now uses its own execution-mode context (experiment `mode`),
+not the agents' `agentic_mode`. The agentic policy is retained separately:
+actual MCDA requests/execution are still forbidden during `authority-dry-run`
+and during exclusive agentic `authority-live`. Aggregate execution outcomes
+include both layers, with `execution_counts_by_layer` retaining their separate
+counts; an actual MCDA execution cannot be hidden by a suppressed agentic
+winner. Counts refer to logged events, not necessarily distinct actions, since
+the MCDA may reuse a cached result across decision windows. The rules 2.0
+report should be preserved: its false positives on confirmed MCDA simulations
+are an auditor interpretation defect, not evidence of unsafe network actuation.
+
 Each check records `check_id`, versioned `rule_id`, `dimension`, `status`,
 `reason`, concrete `evidence`, `missing_fields`, and `source_refs` (artifact,
 NDJSON line, JSON pointer and event ID where available). `verdict_support` maps
 each dimension to its supporting check IDs. A check can pass while an optional
 field is missing; `missing_fields` lists unavailable referenced fields, not
-necessarily blocking prerequisites. Schema and rules version 2.0 distinguish
+necessarily blocking prerequisites. Schema version 2.0 and rules version 2.1 distinguish
 these results from earlier reports. Full proofs stay in JSON and Markdown;
 the expanded trace will need context-budgeting before the next LLM explanation
 phase. The frozen synthetic LLM inputs, prompt, schema and old results have
@@ -73,8 +96,8 @@ never valid output targets:
 
 ```bash
 python3 -m llm_auditor "$DDOS_RUN" --mode audit \
-  --output "$DDOS_RUN/deterministic_rules_v2.json" \
-  --markdown-output "$DDOS_RUN/deterministic_rules_v2.md"
+  --output "$DDOS_RUN/deterministic_rules_v2_1.json" \
+  --markdown-output "$DDOS_RUN/deterministic_rules_v2_1.md"
 
 python3 -m unittest discover -s tests -p 'test_llm*.py' -v
 ```
@@ -83,7 +106,7 @@ The previously inspected 16-case corpus can also be checked without Ollama:
 
 ```bash
 python3 -m llm_auditor.deterministic_campaign \
-  --output deterministic_rules_v2_regression.json
+  --output deterministic_rules_v2_1_regression.json
 ```
 
 This is now a **regression corpus**, not a fresh holdout for rule development.

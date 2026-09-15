@@ -126,6 +126,7 @@ class LLMAuditorTests(unittest.TestCase):
             "decision": "MITIGATE", "evaluated_ns": 180,
             "participating_domains": DOMAINS,
             "confirming_domains": DOMAINS, "min_domains": 2,
+            "mitigation": {"attempted": True, "executed": False, "reason": "DRY_RUN"},
         }
         return [
             timeline_row("domain-0", 150, [waiting], [suspect]),

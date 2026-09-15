@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set
 
 
-RULES_VERSION = "2.0"
+RULES_VERSION = "2.1"
 VERDICT_FIELDS = [
     "protocol_consistency", "scenario_correctness", "decision_stage",
     "execution_status", "operational_effectiveness",
@@ -280,16 +280,39 @@ def _protocol(record: Dict[str, Any], checks: _Checks) -> None:
 
     attempted = _count(facts.get("attempted_execution_events"))
     executed = _count(facts.get("executed_events"))
-    if mode == "authority-dry-run":
+    raw_execution = record.get("raw_execution") or {}
+    if mcda and raw_execution.get("reason") == "DRY_RUN":
+        signature = (
+            raw_execution.get("attempted") is True and raw_execution.get("executed") is False
+        )
+        add("mcda_simulated_attempt_has_dry_run_evidence",
+            False if raw_execution.get("executed") is True else True if signature else None,
+            "The legacy MCDA Mitigator's exact attempted=true, executed=false, reason=DRY_RUN signature "
+            "records intent before an early return, not a FlowBlocker request. Raw flags remain preserved.",
+            ["raw_execution.attempted", "raw_execution.executed", "raw_execution.reason",
+             "normalized_facts.recorded_attempted_execution_events", "normalized_facts.simulated_execution_events",
+             "normalized_facts.attempted_execution_events"])
+    policy_mode = record.get("agentic_policy_mode")
+    if mode in {"authority-dry-run", "collaborative-dry-run"} or policy_mode == "authority-dry-run":
         no_actuation = False if (attempted and attempted > 0) or (executed and executed > 0) else (
             True if attempted == 0 and executed == 0 else None
         )
         # Non-action states can still be checked without fabricated zero counts.
-        if attempted is not None or executed is not None or "AGREED" in states:
+        if attempted is not None or executed is not None or states & {"AGREED", "MITIGATE"}:
             add("dry_run_does_not_actuate", no_actuation,
-                "Dry-run forbids actual attempts and execution, including when the label says dry-run.",
-                ["execution_mode", "normalized_facts.attempted_execution_events",
+                "Dry-run forbids actual requests and execution in either layer. Confirmed legacy MCDA simulations "
+                "are intent records, not actual requests; an agentic attempted=true flag has no such exception.",
+                ["execution_mode", "agentic_policy_mode", "normalized_facts.attempted_execution_events",
                  "normalized_facts.executed_events"])
+    if mcda and policy_mode == "authority-live" and (
+        attempted is not None or executed is not None or "MITIGATE" in mcda
+    ):
+        no_actuation = False if (attempted and attempted > 0) or (executed and executed > 0) else (
+            True if attempted == 0 and executed == 0 else None
+        )
+        add("mcda_does_not_actuate_under_agentic_live_authority", no_actuation,
+            "The MCDA baseline may observe decisions, but actual actuation belongs exclusively to the agents in authority-live.",
+            ["agentic_policy_mode", "normalized_facts.attempted_execution_events", "normalized_facts.executed_events"])
     if states & (INTERMEDIATE_STATES | (FINAL_STATES - {"AGREED", "MITIGATE"})):
         if "AGREED" not in states and "MITIGATE" not in states:
             if attempted is not None or executed is not None:
@@ -385,6 +408,7 @@ def verify_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
     attempted = _count(facts.get("attempted_execution_events"))
     would = _count(facts.get("would_execute_events"))
     winners = _count(facts.get("atomic_claim_winner_events"))
+    simulated = _count(facts.get("simulated_execution_events"))
     mode = record.get("execution_mode")
     execution = "UNKNOWN"
     if executed is not None and executed > 0:
@@ -398,6 +422,8 @@ def verify_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
             record.get("other_coordinator_elected") is True and bool(record.get("known_claim_coordinator"))
         ) and winners == 0:
             execution = "SKIPPED_OTHER_COORDINATOR"
+        elif simulated is not None and simulated > 0:
+            execution = "DRY_RUN_SUPPRESSED"
         elif decision_states and not decision_states & {"AGREED", "MITIGATE"}:
             execution = "NOT_REQUESTED"
     elif attempted is None and executed is None and decision_states and not decision_states & {"AGREED", "MITIGATE"}:
@@ -408,6 +434,7 @@ def verify_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
                "NOT_REQUESTED differs from selected-but-suppressed and skipped-for-another-coordinator.",
                ["execution_mode", "normalized_facts.executed_events", "normalized_facts.attempted_execution_events",
                 "normalized_facts.would_execute_events", "normalized_facts.atomic_claim_winner_events",
+                "normalized_facts.simulated_execution_events",
                 "authority_authorized", "other_coordinator_elected", "known_claim_coordinator"],
                details={"computed": execution})
 

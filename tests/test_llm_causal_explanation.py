@@ -11,8 +11,9 @@ from llm_auditor.causal_certificate import (
     CAUSAL_CERTIFICATE_VERSION, build_causal_certificate,
 )
 from llm_auditor.causal_explanation import (
-    CAUSAL_EXPLANATION_CONTRACT_VERSION, CausalExplanationClient,
-    causal_messages, validate_causal_explanation,
+    CAUSAL_EXPLANATION_CONTRACT_VERSION, CAUSAL_INPUT_VERSION,
+    CausalExplanationClient, causal_messages, causal_prompt_view,
+    prohibited_null_terms, validate_causal_explanation,
 )
 from llm_auditor.causal_explanation_campaign import (
     causal_contract_hashes, explain_causal_campaign, main,
@@ -27,15 +28,16 @@ from test_llm_certificate import ollama_body
 
 
 def causal_result(certificate):
+    causes = certificate.get("decisive_causes") or certificate["dimensions"]
     return {
         "summary": "Resumo condicionado ao certificado determinístico.",
         "dimensions": {
             field: {
-                "verdict": certificate["decisive_causes"][field]["verdict"],
-                "cause_code": certificate["decisive_causes"][field]["cause_code"],
+                "verdict": causes[field]["verdict"],
+                "cause_code": causes[field]["cause_code"],
                 "explanation": "A causa e as evidências decisivas foram preservadas.",
                 "evidence_ids": list(
-                    certificate["decisive_causes"][field]["decisive_evidence_ids"]
+                    causes[field]["decisive_evidence_ids"]
                 ),
             }
             for field in VERDICT_FIELDS
@@ -155,10 +157,25 @@ class CausalExplanationTests(unittest.TestCase):
     def test_prompt_contains_certificate_but_not_campaign_oracle(self):
         messages = causal_messages(self.certificate)
         sent = json.loads(messages[1]["content"])
-        self.assertEqual(sent, self.certificate)
+        self.assertEqual(sent, causal_prompt_view(self.certificate))
+        self.assertEqual(sent["causal_input_version"], CAUSAL_INPUT_VERSION)
+        self.assertNotIn("evidence", sent)
+        self.assertNotIn("context", sent)
         for key in ("expected", "oracle_comparison", "oracle_rationale", "title", "group"):
             self.assertNotIn(key, sent)
-        self.assertIn("null fora de unavailable_fields não é causa", messages[0]["content"])
+        self.assertNotIn("known_claim_coordinator", messages[1]["content"])
+        self.assertIn("não os mencione, nem mesmo como null", messages[0]["content"])
+
+    def test_null_field_excluded_from_projection_and_rejected_in_prose(self):
+        h08 = self.report["cases"][1]["audit"]["explanation_certificate"]
+        self.assertIn("known_claim_coordinator", prohibited_null_terms(h08))
+        self.assertNotIn("known_claim_coordinator", json.dumps(causal_prompt_view(h08)))
+        result = causal_result(h08)
+        result["dimensions"]["protocol_consistency"]["explanation"] = (
+            "Há dois vencedores enquanto known_claim_coordinator é null."
+        )
+        with self.assertRaises(OllamaAuditError):
+            validate_causal_explanation(result, h08)
 
     def test_client_records_normal_completion(self):
         captured = {}
@@ -169,7 +186,8 @@ class CausalExplanationTests(unittest.TestCase):
         self.assertEqual(response["contract_version"], CAUSAL_EXPLANATION_CONTRACT_VERSION)
         self.assertEqual(response["status"], "ACCEPTED_STRUCTURALLY")
         self.assertEqual(response["completion"]["done_reason"], "stop")
-        self.assertEqual(json.loads(captured["messages"][1]["content"]), self.certificate)
+        self.assertEqual(json.loads(captured["messages"][1]["content"]),
+                         causal_prompt_view(self.certificate))
         self.assertFalse(response["grounding_validation"]["prose_factually_verified"])
 
     def test_truncation_tampering_and_undersized_context_are_rejected(self):

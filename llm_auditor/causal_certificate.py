@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.0"
+CAUSAL_CERTIFICATE_VERSION = "2.1"
 
 
 CAUSE_CODES = {

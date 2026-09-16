@@ -286,6 +286,69 @@ reference lists. No classification-accuracy metric is produced. This inspected
 corpus is regression material, not a new independent benchmark; the original
 frozen evaluator, fixture file and previous results are unchanged.
 
+### Causal explanation certificate (version 2.0)
+
+The version 1 reports above remain preserved. Version 2 adds a verifier-derived
+causal index without changing the deterministic rules or the frozen independent
+evaluator. For each of the five dimensions it records an exact `cause_code`, the
+decisive evidence IDs, compact causal facts, and supporting (non-decisive) IDs.
+Only failing groups are decisive for `INCONSISTENT`; only unresolved groups are
+decisive for `INSUFFICIENT_EVIDENCE`. Known false/zero values remain evidence,
+whereas null optional fields are removed from causal facts and cannot be named
+as the cause unless the verifier explicitly lists them in `unavailable_fields`.
+
+The causal LLM contract must repeat the deterministic verdict, cause code, and
+the complete ordered list of decisive IDs for every dimension. The prompt
+explicitly distinguishes no applicable actuation from unavailable operational
+observations and requires a recorded execution count for `EXECUTED`. This
+prevents the structural errors observed in the first manual review, but free
+prose is still not factually certified and remains pending human review.
+
+Prepare and inspect the version 2 manifest without contacting Ollama:
+
+```bash
+python3 -m llm_auditor.causal_explanation_campaign \
+  --manifest-only \
+  --output "$DDOS_RUN/critical_causal_manifest_v2.json"
+
+jq '{
+  status: .campaign_status,
+  summary,
+  causes: [
+    .cases[] | {
+      case_id,
+      protocol: .causal_review.protocol_consistency.cause_code,
+      execution: .causal_review.execution_status.cause_code,
+      effectiveness: .causal_review.operational_effectiveness.cause_code
+    }
+  ]
+}' "$DDOS_RUN/critical_causal_manifest_v2.json"
+```
+
+After the manifest passes its local prechecks, run the six explanations through
+the Mac inference tunnel:
+
+```bash
+python3 -m llm_auditor.causal_explanation_campaign \
+  --model qwen3.5:9b \
+  --ollama-url http://127.0.0.1:12435 \
+  --num-ctx 6144 \
+  --output "$DDOS_RUN/critical_causal_explanations_seed42_v2.json"
+
+jq -r '
+  "Status: \(.campaign_status)",
+  "Accepted structurally: \(.summary.structurally_accepted)/\(.summary.evaluations_completed)",
+  "Manual review pending: \(.summary.pending_manual_review)",
+  (.evaluations[] | "\(.case_id): \(.llm_explanation.status)")
+' "$DDOS_RUN/critical_causal_explanations_seed42_v2.json"
+```
+
+The v2 report is a synthetic explanation regression, not a new accuracy result
+or network experiment. A structural acceptance shows that the model preserved
+the verifier's categorical output and citations; it does not approve the prose.
+The v1 certificate hash is retained as `derived_from_certificate_v1_sha256`, and
+the complete proof/ledger remains available for provenance and manual review.
+
 ## Synthetic protocol campaign
 
 The protocol campaign isolates six declared fixtures: `AGREED` as claim

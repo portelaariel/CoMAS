@@ -13,7 +13,47 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.1"
+CAUSAL_CERTIFICATE_VERSION = "2.2"
+
+
+PROTOCOL_FAILURE_STATEMENTS = {
+    "agreed_has_required_quorum":
+        "AGREED foi registrado sem o quórum de votos MITIGATE exigido.",
+    "agreed_uses_one_model_per_event":
+        "AGREED não possui exatamente uma identidade de modelo conhecida.",
+    "agreed_has_no_normal_proposal":
+        "AGREED contém ao menos uma proposta NORMAL contraditória.",
+    "agreed_votes_match_proposals":
+        "Os votos MITIGATE registrados em AGREED divergem das propostas fornecidas.",
+    "agreed_proposal_model_identity_matches":
+        "A identidade de modelo de AGREED diverge das propostas fornecidas.",
+    "agreed_proposal_freshness_valid":
+        "AGREED contém evidência de proposta fora da validade exigida.",
+    "agreed_proposal_topology_matches":
+        "AGREED contém evidência topológica incompatível entre as propostas.",
+    "agreed_authorized_by_authority_gate":
+        "AGREED foi registrado sem autorização válida do authority gate.",
+    "single_atomic_claim_winner":
+        "Mais de um vencedor simultâneo do claim foi registrado.",
+    "claim_owner_matches_observer":
+        "O agente registrado como vencedor não corresponde ao coordenador do claim.",
+    "claim_winner_matches_would_execute":
+        "O vencedor do claim não corresponde ao agente marcado para executar.",
+    "non_winners_do_not_actuate":
+        "Um agente que não venceu o claim registrou atuação.",
+    "dry_run_does_not_actuate":
+        "Foi registrada atuação em modo dry-run, violando a regra de não atuação.",
+    "waiting_proposals_identifies_missing_domains":
+        "WAITING_PROPOSALS foi registrado sem identificar os domínios ausentes.",
+    "corroborated_is_below_quorum":
+        "CORROBORATED foi registrado apesar de o quórum de mitigação ter sido atingido.",
+    "vetoed_has_veto_evidence":
+        "VETOED foi registrado sem evidência explícita de veto.",
+    "non_mitigation_state_does_not_actuate":
+        "Uma decisão que não solicita mitigação registrou atuação.",
+    "mcda_normal_has_no_confirming_domain":
+        "NORMAL no MCDA contém confirmação de domínio incompatível com esse estado.",
+}
 
 
 CAUSE_CODES = {
@@ -79,6 +119,60 @@ def _known_values(value: Any) -> Any:
     return None if value is None else copy.deepcopy(value)
 
 
+def _causal_statement(field: str, cause_code: str,
+                      decisive_entries: List[Dict[str, Any]]) -> str:
+    if field == "protocol_consistency":
+        if cause_code == "applicable_protocol_checks_passed":
+            return "As verificações protocolares aplicáveis foram aprovadas."
+        if cause_code == "protocol_prerequisites_unavailable":
+            return "As evidências obrigatórias são insuficientes para concluir a consistência protocolar."
+        statements = []
+        for entry in decisive_entries:
+            statement = PROTOCOL_FAILURE_STATEMENTS.get(
+                entry["rule"], f"A regra protocolar {entry['rule']} falhou."
+            )
+            if statement not in statements:
+                statements.append(statement)
+        return " ".join(statements)
+    statements = {
+        "decision_matches_declared_laboratory_context":
+            "A decisão final coincide com o cenário de laboratório declarado.",
+        "decision_conflicts_with_declared_laboratory_context":
+            "A decisão final contradiz o cenário de laboratório declarado.",
+        "non_final_decision_cannot_establish_scenario_correctness":
+            "Uma decisão não final não permite concluir a correção do cenário.",
+        "declared_ground_truth_unavailable":
+            "O ground truth declarado não está disponível para avaliar a correção do cenário.",
+        "declared_ground_truth_invalid_or_contaminated":
+            "O ground truth declarado está inválido ou contaminado.",
+        "scenario_evidence_incomplete":
+            "A evidência disponível não permite concluir a correção do cenário.",
+        "reported_final_state": "Foi registrado um estado final de decisão.",
+        "reported_intermediate_state": "Foi registrado somente um estado intermediário de decisão.",
+        "no_recorded_decision_state": "Nenhum estado de decisão foi registrado.",
+        "recorded_execution": "Ao menos uma execução efetiva foi registrada.",
+        "recorded_attempt_without_execution":
+            "Foi registrada uma tentativa de atuação sem execução bem-sucedida.",
+        "recorded_dry_run_suppression":
+            "Um vencedor foi selecionado para atuar, mas o modo authority-dry-run suprimiu a execução.",
+        "recorded_other_coordinator":
+            "A decisão foi autorizada localmente, mas a atuação coube a outro coordenador.",
+        "decision_did_not_request_actuation":
+            "A decisão final registrada não solicita atuação local.",
+        "execution_evidence_incomplete":
+            "A evidência disponível não permite determinar o status de execução.",
+        "recorded_disruption_after_execution":
+            "Após execução registrada, a observação operacional indica interrupção do ataque.",
+        "recorded_ineffective_or_failed_actuation":
+            "A atuação falhou ou a observação operacional indica que o ataque não foi interrompido.",
+        "no_applicable_local_actuation":
+            "Não houve atuação local aplicável cuja eficácia pudesse ser avaliada.",
+        "operational_outcome_unavailable":
+            "O resultado operacional após a execução não está disponível.",
+    }
+    return statements[cause_code]
+
+
 def _facts_for(field: str, cause_code: str, audit: Dict[str, Any],
                decisive_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     paths = {
@@ -98,10 +192,7 @@ def _facts_for(field: str, cause_code: str, audit: Dict[str, Any],
             "authority_authorized", "other_coordinator_elected",
             "known_claim_coordinator", "normalized_facts.executed_events",
         ],
-        "decision_did_not_request_actuation": [
-            "transitions", "normalized_facts.attempted_execution_events",
-            "normalized_facts.executed_events",
-        ],
+        "decision_did_not_request_actuation": ["transitions"],
         "execution_evidence_incomplete": [
             "execution_mode", "normalized_facts.attempted_execution_events",
             "normalized_facts.executed_events",
@@ -143,6 +234,8 @@ def _facts_for(field: str, cause_code: str, audit: Dict[str, Any],
     facts.update({key: audit[key] for key in ("decision_stage", "execution_status")
                   if key in paths or key in {path.split(".")[0] for path in paths}})
     facts = _known_values(facts)
+    if cause_code == "decision_did_not_request_actuation":
+        facts["actuation_requested_by_final_decision"] = False
     if field == "protocol_consistency" and cause_code == "recorded_protocol_violation":
         facts["violations"] = [{
             "evidence_id": entry["id"], "rule": entry["rule"],
@@ -180,6 +273,7 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
         decisive_ids = [entry["id"] for entry in decisive]
         causes[field] = {
             "verdict": verdict, "cause_code": cause_code,
+            "causal_statement": _causal_statement(field, cause_code, decisive),
             "decisive_evidence_ids": decisive_ids,
             "supporting_evidence_ids": [entry["id"] for entry in dimension_entries
                                         if entry["id"] not in decisive_ids],

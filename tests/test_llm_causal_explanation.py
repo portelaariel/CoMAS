@@ -35,7 +35,11 @@ def causal_result(certificate):
             field: {
                 "verdict": causes[field]["verdict"],
                 "cause_code": causes[field]["cause_code"],
-                "explanation": "A causa e as evidências decisivas foram preservadas.",
+                "causal_statement": causes[field]["causal_statement"],
+                "explanation": (
+                    causes[field]["causal_statement"]
+                    + " As evidências decisivas foram preservadas."
+                ),
                 "evidence_ids": list(
                     causes[field]["decisive_evidence_ids"]
                 ),
@@ -78,6 +82,9 @@ class CausalCertificateTests(unittest.TestCase):
             "agreed_has_required_quorum", "agreed_has_no_normal_proposal",
         })
         self.assertNotIn("E02", cause["decisive_evidence_ids"])
+        self.assertIn("sem o quórum", cause["causal_statement"])
+        self.assertIn("contém ao menos uma proposta NORMAL", cause["causal_statement"])
+        self.assertNotIn("ausência de proposta", cause["causal_statement"])
 
     def test_not_applicable_is_caused_by_no_applicable_actuation(self):
         for case_id, status in (("h07", "DRY_RUN_SUPPRESSED"),
@@ -86,6 +93,14 @@ class CausalCertificateTests(unittest.TestCase):
                 cause = self.cause(case_id, "operational_effectiveness")
                 self.assertEqual(cause["cause_code"], "no_applicable_local_actuation")
                 self.assertEqual(cause["facts"], {"execution_status": status})
+
+    def test_not_requested_statement_uses_decision_not_zero_counts(self):
+        cause = self.cause("h13", "execution_status")
+        self.assertEqual(cause["cause_code"], "decision_did_not_request_actuation")
+        self.assertEqual(cause["causal_statement"],
+                         "A decisão final registrada não solicita atuação local.")
+        self.assertFalse(cause["facts"]["actuation_requested_by_final_decision"])
+        self.assertNotIn("normalized_facts.attempted_execution_events", cause["facts"])
 
     def test_recorded_execution_and_effectiveness_require_observations(self):
         h14_execution = self.cause("h14", "execution_status")
@@ -140,13 +155,17 @@ class CausalExplanationTests(unittest.TestCase):
         validation = validate_causal_explanation(result, self.certificate)
         self.assertTrue(validation["cause_codes_match"])
         self.assertFalse(validation["prose_factually_verified"])
-        for mutation in ("verdict", "cause", "missing", "reordered"):
+        for mutation in ("verdict", "cause", "statement", "prefix", "missing", "reordered"):
             changed = copy.deepcopy(result)
             item = changed["dimensions"]["protocol_consistency"]
             if mutation == "verdict":
                 item["verdict"] = "CONSISTENT"
             elif mutation == "cause":
                 item["cause_code"] = "made_up"
+            elif mutation == "statement":
+                item["causal_statement"] = "Outra causa."
+            elif mutation == "prefix":
+                item["explanation"] = "Contexto antes do enunciado causal."
             elif mutation == "missing":
                 item["evidence_ids"] = item["evidence_ids"][:-1]
             else:

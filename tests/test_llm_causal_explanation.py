@@ -112,6 +112,8 @@ class CausalCertificateTests(unittest.TestCase):
         h16_effect = self.cause("h16", "operational_effectiveness")
         self.assertEqual(h16_effect["cause_code"], "operational_outcome_unavailable")
         self.assertFalse(h16_effect["facts"]["operational_evidence.observations_available"])
+        self.assertEqual(h16_effect["causal_statement"],
+                         "O resultado operacional da execução registrada não está disponível.")
 
     def test_missing_evidence_is_not_converted_to_zero(self):
         protocol = self.cause("h15", "protocol_consistency")
@@ -121,6 +123,10 @@ class CausalCertificateTests(unittest.TestCase):
         execution = self.cause("h15", "execution_status")
         self.assertEqual(execution["cause_code"], "execution_evidence_incomplete")
         self.assertNotIn("normalized_facts.executed_events", execution["facts"])
+        effectiveness = self.cause("h15", "operational_effectiveness")
+        self.assertEqual(effectiveness["causal_statement"],
+                         "A evidência disponível não permite determinar a execução nem seu resultado operacional.")
+        self.assertNotIn("após a execução", effectiveness["causal_statement"])
 
     def test_causal_facts_contain_no_nulls(self):
         def contains_none(value):

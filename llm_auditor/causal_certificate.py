@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.2"
+CAUSAL_CERTIFICATE_VERSION = "2.4"
 
 
 PROTOCOL_FAILURE_STATEMENTS = {
@@ -120,7 +120,8 @@ def _known_values(value: Any) -> Any:
 
 
 def _causal_statement(field: str, cause_code: str,
-                      decisive_entries: List[Dict[str, Any]]) -> str:
+                      decisive_entries: List[Dict[str, Any]],
+                      audit: Dict[str, Any]) -> str:
     if field == "protocol_consistency":
         if cause_code == "applicable_protocol_checks_passed":
             return "As verificações protocolares aplicáveis foram aprovadas."
@@ -167,9 +168,11 @@ def _causal_statement(field: str, cause_code: str,
             "A atuação falhou ou a observação operacional indica que o ataque não foi interrompido.",
         "no_applicable_local_actuation":
             "Não houve atuação local aplicável cuja eficácia pudesse ser avaliada.",
-        "operational_outcome_unavailable":
-            "O resultado operacional após a execução não está disponível.",
     }
+    if cause_code == "operational_outcome_unavailable":
+        if audit.get("execution_status") == "EXECUTED":
+            return "O resultado operacional da execução registrada não está disponível."
+        return "A evidência disponível não permite determinar a execução nem seu resultado operacional."
     return statements[cause_code]
 
 
@@ -273,7 +276,7 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
         decisive_ids = [entry["id"] for entry in decisive]
         causes[field] = {
             "verdict": verdict, "cause_code": cause_code,
-            "causal_statement": _causal_statement(field, cause_code, decisive),
+            "causal_statement": _causal_statement(field, cause_code, decisive, audit),
             "decisive_evidence_ids": decisive_ids,
             "supporting_evidence_ids": [entry["id"] for entry in dimension_entries
                                         if entry["id"] not in decisive_ids],

@@ -173,6 +173,14 @@ class CausalExplanationTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(OllamaAuditError):
                 validate_causal_explanation(changed, self.certificate)
 
+    def test_neutral_prefix_before_literal_causal_statement_is_allowed(self):
+        result = causal_result(self.certificate)
+        for field in VERDICT_FIELDS:
+            item = result["dimensions"][field]
+            item["explanation"] = "O enunciado causal afirma que " + item["causal_statement"]
+        validation = validate_causal_explanation(result, self.certificate)
+        self.assertTrue(validation["causal_statements_match_exactly"])
+
     def test_prompt_contains_certificate_but_not_campaign_oracle(self):
         messages = causal_messages(self.certificate)
         sent = json.loads(messages[1]["content"])

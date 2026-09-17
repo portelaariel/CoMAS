@@ -286,9 +286,9 @@ reference lists. No classification-accuracy metric is produced. This inspected
 corpus is regression material, not a new independent benchmark; the original
 frozen evaluator, fixture file and previous results are unchanged.
 
-### Causal explanation certificate (version 2.2)
+### Causal explanation certificate (version 2.3)
 
-The version 1, 2.0, and 2.1 reports remain preserved. Version 2.2 adds a verifier-derived
+The version 1 and earlier v2 reports remain preserved. Version 2.3 adds a verifier-derived
 causal index without changing the deterministic rules or the frozen independent
 evaluator. For each of the five dimensions it records an exact `cause_code`, the
 decisive evidence IDs, compact causal facts, and supporting (non-decisive) IDs.
@@ -306,16 +306,17 @@ observations and requires a recorded execution count for `EXECUTED`. This
 prevents the structural errors observed in the first manual review, but free
 prose is still not factually certified and remains pending human review. An
 answer that names a null field omitted from the causal projection is rejected.
-The explanation must begin with the exact verifier-generated causal statement;
-this prevents inversions such as describing a present contradictory NORMAL vote
-as absent, while any additional generated prose remains subject to review.
+The explanation must contain the exact verifier-generated causal statement. A
+neutral introductory prefix is allowed, but an omitted or altered statement is
+rejected. This prevents inversions such as describing a present contradictory
+NORMAL vote as absent, while additional generated prose remains subject to review.
 
 Prepare and inspect the version 2 manifest without contacting Ollama:
 
 ```bash
 python3 -m llm_auditor.causal_explanation_campaign \
   --manifest-only \
-  --output "$DDOS_RUN/critical_causal_manifest_v2_2.json"
+  --output "$DDOS_RUN/critical_causal_manifest_v2_3.json"
 
 jq '{
   status: .campaign_status,
@@ -328,7 +329,7 @@ jq '{
       effectiveness: .causal_review.operational_effectiveness.cause_code
     }
   ]
-}' "$DDOS_RUN/critical_causal_manifest_v2_2.json"
+}' "$DDOS_RUN/critical_causal_manifest_v2_3.json"
 ```
 
 After the manifest passes its local prechecks, run the six explanations through
@@ -339,14 +340,14 @@ python3 -m llm_auditor.causal_explanation_campaign \
   --model qwen3.5:9b \
   --ollama-url http://127.0.0.1:12435 \
   --num-ctx 6144 \
-  --output "$DDOS_RUN/critical_causal_explanations_seed42_v2_2.json"
+  --output "$DDOS_RUN/critical_causal_explanations_seed42_v2_3.json"
 
 jq -r '
   "Status: \(.campaign_status)",
   "Accepted structurally: \(.summary.structurally_accepted)/\(.summary.evaluations_completed)",
   "Manual review pending: \(.summary.pending_manual_review)",
   (.evaluations[] | "\(.case_id): \(.llm_explanation.status)")
-' "$DDOS_RUN/critical_causal_explanations_seed42_v2_2.json"
+' "$DDOS_RUN/critical_causal_explanations_seed42_v2_3.json"
 ```
 
 The v2 report is a synthetic explanation regression, not a new accuracy result

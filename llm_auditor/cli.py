@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 from .core import audit_run, compare_verdicts, evaluation_evidence
 from .certificate import attach_certificate
 from .certificate_explanation import CertificateExplanationClient, context_budget
+from .causal_certificate import attach_causal_certificate
+from .causal_explanation import CausalExplanationClient, causal_context_budget
 from .ollama import OllamaAuditClient, OllamaAuditError
 
 
@@ -22,9 +24,17 @@ def apply_llm(
     client: OllamaAuditClient,
 ) -> Dict[str, Any]:
     for episode in report.get("episodes") or []:
-        if mode == "explain":
-            certificate = attach_certificate(episode)
-            episode["certificate_context"] = context_budget(certificate, client.num_ctx)
+        if mode in {"explain", "causal-explain"}:
+            if mode == "causal-explain":
+                certificate = attach_causal_certificate(episode)
+                episode["certificate_context"] = causal_context_budget(
+                    certificate, client.num_ctx
+                )
+            else:
+                certificate = attach_certificate(episode)
+                episode["certificate_context"] = context_budget(
+                    certificate, client.num_ctx
+                )
             try:
                 episode["llm_explanation"] = client.explain(certificate)
             except OllamaAuditError as exc:
@@ -127,7 +137,8 @@ def render_markdown(report: Dict[str, Any], mode: str) -> str:
                 result = explanation["result"]
                 lines.extend([result["summary"], ""])
                 for field, item in (result.get("dimensions") or {}).items():
-                    lines.append(f"- `{field}` = `{item['verdict']}`: {item['explanation']} "
+                    cause = (f" / `{item['cause_code']}`" if item.get("cause_code") else "")
+                    lines.append(f"- `{field}` = `{item['verdict']}`{cause}: {item['explanation']} "
                                  f"(evidence: {', '.join(item['evidence_ids'])})")
                 if explanation.get("grounding_validation"):
                     lines.extend(["", "Categorical echoes and references checked; free prose still requires manual review.", ""])
@@ -149,8 +160,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("run_dir", type=Path)
     parser.add_argument(
-        "--mode", choices=("audit", "certificate", "explain", "evaluate"), default="audit",
-        help="audit/certificate são locais; explain/evaluate consultam o Ollama",
+        "--mode", choices=("audit", "certificate", "explain", "causal-explain", "evaluate"),
+        default="audit",
+        help="audit/certificate são locais; explain/causal-explain/evaluate consultam o Ollama",
     )
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument(
@@ -189,8 +201,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             for episode in report.get("episodes") or []:
                 certificate = attach_certificate(episode)
                 episode["certificate_context"] = context_budget(certificate, args.num_ctx)
-        elif args.mode in {"explain", "evaluate"}:
-            client_type = CertificateExplanationClient if args.mode == "explain" else OllamaAuditClient
+        elif args.mode in {"explain", "causal-explain", "evaluate"}:
+            client_type = {
+                "explain": CertificateExplanationClient,
+                "causal-explain": CausalExplanationClient,
+                "evaluate": OllamaAuditClient,
+            }[args.mode]
             client = client_type(
                 model=args.model,
                 base_url=args.ollama_url,

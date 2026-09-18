@@ -358,6 +358,39 @@ the verifier's categorical output and citations; it does not approve the prose.
 The v1 certificate hash is retained as `derived_from_certificate_v1_sha256`, and
 the complete proof/ledger remains available for provenance and manual review.
 
+After the synthetic causal regression is reviewed, apply the same contract to a
+completed real experiment with a fresh filename. `causal-explain` re-runs the
+deterministic verifier, attaches the version 2.4 certificate and sends only its
+causal projection to Ollama; it never enters the runtime or actuates mitigation:
+
+```bash
+python3 -m llm_auditor "$DDOS_RUN" \
+  --mode causal-explain \
+  --model qwen3.5:9b \
+  --ollama-url http://127.0.0.1:12435 \
+  --num-ctx 6144 \
+  --output "$DDOS_RUN/causal_explain_real_v2_4.json" \
+  --markdown-output "$DDOS_RUN/causal_explain_real_v2_4.md"
+
+jq '.episodes[] | {
+  deterministic: {
+    protocol_consistency,
+    scenario_correctness,
+    decision_stage,
+    execution_status,
+    operational_effectiveness
+  },
+  explanation_status: .llm_explanation.status,
+  causal_statements_match: .llm_explanation.grounding_validation.causal_statements_match_exactly,
+  omitted_null_fields_absent: .llm_explanation.grounding_validation.omitted_null_fields_absent,
+  result: .llm_explanation.result
+}' "$DDOS_RUN/causal_explain_real_v2_4.json"
+```
+
+The real-run report remains a post-experiment explanation of recorded evidence,
+not an independent proof that the logs are complete or that mitigation was
+effective. A structurally accepted answer still requires review of free prose.
+
 ## Synthetic protocol campaign
 
 The protocol campaign isolates six declared fixtures: `AGREED` as claim

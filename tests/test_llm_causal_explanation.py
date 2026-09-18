@@ -20,10 +20,13 @@ from llm_auditor.causal_explanation_campaign import (
     prepare_causal_report,
 )
 from llm_auditor.certificate import build_certificate, digest
+from llm_auditor.cli import apply_llm, main as auditor_main
+from llm_auditor.core import audit_run
 from llm_auditor.ollama import OllamaAuditError
 from llm_auditor.rules import VERDICT_FIELDS
 from llm_auditor.validation_dataset import HOLDOUT_PATH
 from test_llm_auditor import FakeResponse
+import test_llm_auditor as auditor_test_support
 from test_llm_certificate import ollama_body
 
 
@@ -321,6 +324,53 @@ class CausalExplanationCampaignTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--manifest-only", "--output", str(HOLDOUT_PATH), "--overwrite"]), 2)
         self.assertEqual(HOLDOUT_PATH.read_bytes(), original)
+
+
+class RealRunCausalExplanationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.run_dir = Path(self.tmp.name) / "run"
+        self.run_dir.mkdir()
+        helper = auditor_test_support.LLMAuditorTests()
+        helper.write_run(self.run_dir, helper.valid_rows())
+
+    @staticmethod
+    def opener(request, timeout):
+        payload = json.loads(request.data)
+        projection = json.loads(payload["messages"][1]["content"])
+        return FakeResponse(ollama_body(causal_result(projection)))
+
+    def test_real_run_causal_mode_preserves_verdicts_and_uses_v2_certificate(self):
+        report = audit_run(self.run_dir)
+        before = {field: report["episodes"][0][field] for field in VERDICT_FIELDS}
+        client = CausalExplanationClient(num_ctx=6144, opener=self.opener)
+        apply_llm(report, mode="causal-explain", client=client)
+        episode = report["episodes"][0]
+        self.assertEqual(before, {field: episode[field] for field in VERDICT_FIELDS})
+        self.assertEqual(episode["explanation_certificate"]["certificate_version"], "2.4")
+        self.assertEqual(episode["llm_explanation"]["status"], "ACCEPTED_STRUCTURALLY")
+        self.assertTrue(episode["llm_explanation"]["grounding_validation"]
+                        ["causal_statements_match_exactly"])
+
+    def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
+        output = Path(self.tmp.name) / "causal-real.json"
+        markdown = Path(self.tmp.name) / "causal-real.md"
+        with patch("urllib.request.urlopen", side_effect=self.opener), \
+                contextlib.redirect_stdout(io.StringIO()):
+            status = auditor_main([
+                str(self.run_dir), "--mode", "causal-explain", "--num-ctx", "6144",
+                "--output", str(output), "--markdown-output", str(markdown),
+            ])
+        self.assertEqual(status, 0)
+        report = json.loads(output.read_text())
+        episode = report["episodes"][0]
+        self.assertTrue(episode["checks"])
+        self.assertEqual(episode["llm_explanation"]["contract_version"],
+                         CAUSAL_EXPLANATION_CONTRACT_VERSION)
+        rendered = markdown.read_text()
+        self.assertIn("causal-explain", rendered)
+        self.assertIn("recorded_dry_run_suppression", rendered)
 
 
 if __name__ == "__main__":

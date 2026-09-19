@@ -8,10 +8,11 @@ and recorded execution independently of protocol validity.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Set
 
 
-RULES_VERSION = "2.1"
+RULES_VERSION = "2.2"
 VERDICT_FIELDS = [
     "protocol_consistency", "scenario_correctness", "decision_stage",
     "execution_status", "operational_effectiveness",
@@ -38,6 +39,13 @@ def _get(record: Dict[str, Any], path: str) -> Any:
 def _count(value: Any) -> Optional[int]:
     # bool is a subclass of int; accepting it would turn True into a count.
     return value if type(value) is int and value >= 0 else None
+
+
+def _number(value: Any) -> Optional[float]:
+    if type(value) not in (int, float):
+        return None
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else None
 
 
 def _names(value: Any) -> Optional[Set[str]]:
@@ -268,15 +276,44 @@ def _protocol(record: Dict[str, Any], checks: _Checks) -> None:
         confirming = _names(record.get("confirming_domains"))
         add("mcda_normal_has_no_confirming_domain", not confirming if confirming is not None else None,
             "MCDA NORMAL requires an explicitly empty confirming-domain set.", ["confirming_domains"])
-    if mcda & {"MITIGATE", "CORROBORATED"}:
+    if "MITIGATE" in mcda:
         confirming = _names(record.get("confirming_domains"))
         minimum = _count(record.get("min_domains", record.get("required_votes")))
         condition = None
         if confirming is not None and minimum is not None and minimum > 0:
-            condition = len(confirming) >= minimum if "MITIGATE" in mcda else 0 < len(confirming) < minimum
-        add("mcda_mitigate_has_required_domains" if "MITIGATE" in mcda else "corroborated_is_below_quorum",
-            condition, "MCDA confirmation counts must justify its declared state.",
+            condition = len(confirming) >= minimum
+        add("mcda_mitigate_has_required_domains", condition,
+            "MCDA MITIGATE requires the configured number of confirming domains.",
             ["confirming_domains", "min_domains", "required_votes"])
+        score = _number(record.get("mcda_score"))
+        decision_threshold = _number(record.get("mcda_decision_threshold"))
+        if score is not None or decision_threshold is not None:
+            add("mcda_mitigate_meets_decision_threshold",
+                score >= decision_threshold
+                if score is not None and decision_threshold is not None else None,
+                "MCDA MITIGATE requires a score at or above its decision threshold.",
+                ["mcda_score", "mcda_decision_threshold"])
+
+    if "CORROBORATED" in mcda:
+        confirming = _names(record.get("confirming_domains"))
+        add("corroborated_has_confirming_domain",
+            bool(confirming) if confirming is not None else None,
+            "MCDA CORROBORATED requires at least one confirming domain.",
+            ["confirming_domains"])
+        score = _number(record.get("mcda_score"))
+        alert_threshold = _number(record.get("mcda_alert_threshold"))
+        decision_threshold = _number(record.get("mcda_decision_threshold"))
+        if any(value is not None for value in (
+                score, alert_threshold, decision_threshold)):
+            add("corroborated_score_is_intermediate",
+                (alert_threshold <= score < decision_threshold)
+                if (score is not None and alert_threshold is not None
+                    and decision_threshold is not None
+                    and alert_threshold < decision_threshold) else None,
+                "MCDA CORROBORATED requires a score from the alert threshold "
+                "up to, but not including, the decision threshold.",
+                ["mcda_score", "mcda_alert_threshold",
+                 "mcda_decision_threshold"])
 
     attempted = _count(facts.get("attempted_execution_events"))
     executed = _count(facts.get("executed_events"))

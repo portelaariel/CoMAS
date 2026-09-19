@@ -117,6 +117,10 @@ def extract_decision_events(
                     "sampled_ns": sampled_ns,
                     "source_line": row.get("_audit_source_line", row_index + 1),
                     "source_pointer": f"/{section}/decision_events/{event_index}",
+                    "runtime_config": json.loads(json.dumps(
+                        block.get("config")
+                        if isinstance(block.get("config"), dict) else {}
+                    )),
                 }
                 timestamp = event_time_ns(enriched)
                 if minimum_ns and timestamp and timestamp < minimum_ns:

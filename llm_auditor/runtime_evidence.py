@@ -121,6 +121,22 @@ def normalize_event(
         if key in event:
             record[key] = event[key]
         sources[key] = [ref(key)]
+    if layer == "mcda":
+        runtime_config = _mapping(audit.get("runtime_config"))
+        if type(event.get("score")) in (int, float):
+            record["mcda_score"] = event["score"]
+        sources["mcda_score"] = [ref("score")]
+        for config_key, record_key in (
+            ("alert_threshold", "mcda_alert_threshold"),
+            ("decision_threshold", "mcda_decision_threshold"),
+        ):
+            if type(runtime_config.get(config_key)) in (int, float):
+                record[record_key] = runtime_config[config_key]
+            sources[record_key] = [{
+                "artifact": "timeline.ndjson",
+                "line": audit.get("source_line"),
+                "pointer": f"/collaboration/config/{config_key}",
+            }]
     models = event.get("model_ids")
     proposals = event.get("proposals")
     if isinstance(models, list) and models:

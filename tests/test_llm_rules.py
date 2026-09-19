@@ -203,6 +203,63 @@ class RuntimeVerifierTests(unittest.TestCase):
             decision="MITIGATE", confirming_domains=["domain-0", "domain-1"], min_domains=2)
         self.assertEqual(self.audit(rows)["scenario_correctness"], "UNKNOWN")
 
+    def test_corroborated_with_full_quorum_is_valid_in_intermediate_score_band(self):
+        event = {
+            "event_id": "mcda:corroborated:180",
+            "flow": runtime_fixtures.FLOW,
+            "decision": "CORROBORATED",
+            "evaluated_ns": 180,
+            "score": 0.7,
+            "confirming_domains": runtime_fixtures.DOMAINS,
+            "min_domains": 2,
+            "mitigation": {
+                "attempted": False,
+                "executed": False,
+                "reason": "NOT_REQUESTED",
+            },
+        }
+        row = timeline_row("domain-0", 180, mcda_events=[event])
+        row["collaboration"]["config"] = {
+            "alert_threshold": 0.6,
+            "decision_threshold": 0.8,
+        }
+
+        result = self.audit([row])
+
+        self.assertEqual(result["protocol_consistency"], "CONSISTENT")
+        checks = {check["name"]: check for check in result["checks"]}
+        self.assertEqual(checks["corroborated_has_confirming_domain"]["status"], "PASS")
+        score_check = checks["corroborated_score_is_intermediate"]
+        self.assertEqual(score_check["status"], "PASS")
+        self.assertEqual(
+            score_check["evidence"]["values"],
+            {
+                "mcda_score": 0.7,
+                "mcda_alert_threshold": 0.6,
+                "mcda_decision_threshold": 0.8,
+            },
+        )
+        self.assertTrue(any(
+            ref["pointer"] == "/collaboration/config/decision_threshold"
+            for ref in score_check["source_refs"]
+        ))
+
+        invalid_event = copy.deepcopy(event)
+        invalid_event["event_id"] = "mcda:corroborated:190"
+        invalid_event["evaluated_ns"] = 190
+        invalid_event["score"] = 0.9
+        invalid_row = timeline_row("domain-0", 190, mcda_events=[invalid_event])
+        invalid_row["collaboration"]["config"] = copy.deepcopy(
+            row["collaboration"]["config"]
+        )
+        invalid_result = self.audit([invalid_row])
+        self.assertEqual(invalid_result["protocol_consistency"], "INCONSISTENT")
+        invalid_check = next(
+            check for check in invalid_result["checks"]
+            if check["name"] == "corroborated_score_is_intermediate"
+        )
+        self.assertEqual(invalid_check["status"], "FAIL")
+
     def test_invalid_summary_blocks_scenario_and_effectiveness_claims(self):
         event = agreed_event("domain-0", 200, won=True)
         event["mode"] = "authority-live"
@@ -239,7 +296,7 @@ class RuntimeVerifierTests(unittest.TestCase):
     def test_no_inference_occurs_in_audit_mode(self):
         with patch("llm_auditor.ollama.OllamaAuditClient._chat", side_effect=AssertionError("LLM forbidden")):
             result = self.audit(runtime_fixtures.LLMAuditorTests().valid_rows())
-        self.assertEqual(result["rules_version"], "2.1")
+        self.assertEqual(result["rules_version"], "2.2")
 
     def test_malformed_metadata_is_not_treated_as_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

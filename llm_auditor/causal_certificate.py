@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.4"
+CAUSAL_CERTIFICATE_VERSION = "2.5"
 
 
 PROTOCOL_FAILURE_STATEMENTS = {
@@ -45,8 +45,14 @@ PROTOCOL_FAILURE_STATEMENTS = {
         "Foi registrada atuação em modo dry-run, violando a regra de não atuação.",
     "waiting_proposals_identifies_missing_domains":
         "WAITING_PROPOSALS foi registrado sem identificar os domínios ausentes.",
-    "corroborated_is_below_quorum":
-        "CORROBORATED foi registrado apesar de o quórum de mitigação ter sido atingido.",
+    "corroborated_has_confirming_domain":
+        "CORROBORATED foi registrado sem domínio confirmador.",
+    "corroborated_score_is_intermediate":
+        "CORROBORATED foi registrado fora da faixa intermediária de pontuação MCDA.",
+    "mcda_mitigate_has_required_domains":
+        "MITIGATE foi registrado sem o número exigido de domínios confirmadores.",
+    "mcda_mitigate_meets_decision_threshold":
+        "MITIGATE foi registrado abaixo do limiar de decisão MCDA.",
     "vetoed_has_veto_evidence":
         "VETOED foi registrado sem evidência explícita de veto.",
     "non_mitigation_state_does_not_actuate":

@@ -12,7 +12,7 @@ facts and the documented rules:
 python3 -m llm_auditor experiments/results/<run> --mode audit
 ```
 
-## Evidence-based deterministic verifier (rules 2.1)
+## Evidence-based deterministic verifier (rules 2.2)
 
 `rules.py` is a pure verifier; `runtime_evidence.py` adapts immutable runtime
 events without importing the controller. The five dimensions are independent:
@@ -68,6 +68,17 @@ do not prove suppression. This exception never applies to agentic execution
 records, and `executed=true` always remains an execution even alongside a
 contradictory `DRY_RUN` marker.
 
+Rules 2.2 correct the MCDA state semantics used by the verifier. `MITIGATE`
+requires both the configured confirming-domain count and, when the runtime
+configuration is present, a score at or above `decision_threshold`.
+`CORROBORATED` is an intermediate score-band state: it requires at least one
+confirming domain and a score satisfying
+`alert_threshold <= score < decision_threshold`. It is therefore valid for a
+`CORROBORATED` event to contain all configured domains; full domain
+corroboration alone does not force `MITIGATE`. The adapter retains the event
+score and the two thresholds from `collaboration.config`, with source
+references to the original timeline row.
+
 The MCDA layer now uses its own execution-mode context (experiment `mode`),
 not the agents' `agentic_mode`. The agentic policy is retained separately:
 actual MCDA requests/execution are still forbidden during `authority-dry-run`
@@ -84,7 +95,7 @@ Each check records `check_id`, versioned `rule_id`, `dimension`, `status`,
 NDJSON line, JSON pointer and event ID where available). `verdict_support` maps
 each dimension to its supporting check IDs. A check can pass while an optional
 field is missing; `missing_fields` lists unavailable referenced fields, not
-necessarily blocking prerequisites. Schema version 2.0 and rules version 2.1 distinguish
+necessarily blocking prerequisites. Schema version 2.0 and rules version 2.2 distinguish
 these results from earlier reports. Full proofs stay in JSON and Markdown;
 the explanation phase now uses the compact certificate described below instead
 of sending the expanded trace. The frozen synthetic LLM inputs, evaluator
@@ -96,8 +107,8 @@ never valid output targets:
 
 ```bash
 python3 -m llm_auditor "$DDOS_RUN" --mode audit \
-  --output "$DDOS_RUN/deterministic_rules_v2_1.json" \
-  --markdown-output "$DDOS_RUN/deterministic_rules_v2_1.md"
+  --output "$DDOS_RUN/deterministic_rules_v2_2.json" \
+  --markdown-output "$DDOS_RUN/deterministic_rules_v2_2.md"
 
 python3 -m unittest discover -s tests -p 'test_llm*.py' -v
 ```
@@ -106,7 +117,7 @@ The previously inspected 16-case corpus can also be checked without Ollama:
 
 ```bash
 python3 -m llm_auditor.deterministic_campaign \
-  --output deterministic_rules_v2_1_regression.json
+  --output deterministic_rules_v2_2_regression.json
 ```
 
 This is now a **regression corpus**, not a fresh holdout for rule development.
@@ -286,11 +297,11 @@ reference lists. No classification-accuracy metric is produced. This inspected
 corpus is regression material, not a new independent benchmark; the original
 frozen evaluator, fixture file and previous results are unchanged.
 
-### Causal explanation certificate (version 2.4)
+### Causal explanation certificate (version 2.5)
 
-The version 1 and earlier v2 reports remain preserved. Version 2.4 adds a verifier-derived
-causal index without changing the deterministic rules or the frozen independent
-evaluator. For each of the five dimensions it records an exact `cause_code`, the
+The version 1 and earlier v2 reports remain preserved. Version 2.5 retains the
+verifier-derived causal index and incorporates rules 2.2 without changing the
+frozen independent evaluator. For each of the five dimensions it records an exact `cause_code`, the
 decisive evidence IDs, compact causal facts, and supporting (non-decisive) IDs.
 Only failing groups are decisive for `INCONSISTENT`; only unresolved groups are
 decisive for `INSUFFICIENT_EVIDENCE`. Known false/zero values remain evidence,
@@ -303,13 +314,13 @@ It must repeat the deterministic verdict, cause code, causal statement, and
 the complete ordered list of decisive IDs for every dimension. The prompt
 explicitly distinguishes no applicable actuation from unavailable operational
 observations and requires a recorded execution count for `EXECUTED`. This
-prevents the structural errors observed in the first manual review, but free
-prose is still not factually certified and remains pending human review. An
+prevents the structural errors observed in the first manual review. An
 answer that names a null field omitted from the causal projection is rejected.
-The explanation must contain the exact verifier-generated causal statement. A
-neutral introductory prefix is allowed, but an omitted or altered statement is
-rejected. This prevents inversions such as describing a present contradictory
-NORMAL vote as absent, while additional generated prose remains subject to review.
+Each per-dimension `explanation` must now equal the verifier-generated causal
+statement exactly: prefixes, suffixes, paraphrases and additional claims are
+rejected. This prevents an answer from repeating the right cause and then
+contradicting it in appended prose. The generated summary remains free text and
+therefore remains pending human review.
 Unknown execution is also kept distinct from a confirmed execution whose
 operational outcome alone is unavailable.
 
@@ -318,7 +329,7 @@ Prepare and inspect the version 2 manifest without contacting Ollama:
 ```bash
 python3 -m llm_auditor.causal_explanation_campaign \
   --manifest-only \
-  --output "$DDOS_RUN/critical_causal_manifest_v2_4.json"
+  --output "$DDOS_RUN/critical_causal_manifest_v2_5.json"
 
 jq '{
   status: .campaign_status,
@@ -331,7 +342,7 @@ jq '{
       effectiveness: .causal_review.operational_effectiveness.cause_code
     }
   ]
-}' "$DDOS_RUN/critical_causal_manifest_v2_4.json"
+}' "$DDOS_RUN/critical_causal_manifest_v2_5.json"
 ```
 
 After the manifest passes its local prechecks, run the six explanations through
@@ -342,14 +353,14 @@ python3 -m llm_auditor.causal_explanation_campaign \
   --model qwen3.5:9b \
   --ollama-url http://127.0.0.1:12435 \
   --num-ctx 6144 \
-  --output "$DDOS_RUN/critical_causal_explanations_seed42_v2_4.json"
+  --output "$DDOS_RUN/critical_causal_explanations_seed42_v2_5.json"
 
 jq -r '
   "Status: \(.campaign_status)",
   "Accepted structurally: \(.summary.structurally_accepted)/\(.summary.evaluations_completed)",
   "Manual review pending: \(.summary.pending_manual_review)",
   (.evaluations[] | "\(.case_id): \(.llm_explanation.status)")
-' "$DDOS_RUN/critical_causal_explanations_seed42_v2_4.json"
+' "$DDOS_RUN/critical_causal_explanations_seed42_v2_5.json"
 ```
 
 The v2 report is a synthetic explanation regression, not a new accuracy result
@@ -360,7 +371,7 @@ the complete proof/ledger remains available for provenance and manual review.
 
 After the synthetic causal regression is reviewed, apply the same contract to a
 completed real experiment with a fresh filename. `causal-explain` re-runs the
-deterministic verifier, attaches the version 2.4 certificate and sends only its
+deterministic verifier, attaches the version 2.5 certificate and sends only its
 causal projection to Ollama; it never enters the runtime or actuates mitigation:
 
 ```bash
@@ -369,8 +380,8 @@ python3 -m llm_auditor "$DDOS_RUN" \
   --model qwen3.5:9b \
   --ollama-url http://127.0.0.1:12435 \
   --num-ctx 6144 \
-  --output "$DDOS_RUN/causal_explain_real_v2_4.json" \
-  --markdown-output "$DDOS_RUN/causal_explain_real_v2_4.md"
+  --output "$DDOS_RUN/causal_explain_real_v2_5.json" \
+  --markdown-output "$DDOS_RUN/causal_explain_real_v2_5.md"
 
 jq '.episodes[] | {
   deterministic: {
@@ -384,12 +395,13 @@ jq '.episodes[] | {
   causal_statements_match: .llm_explanation.grounding_validation.causal_statements_match_exactly,
   omitted_null_fields_absent: .llm_explanation.grounding_validation.omitted_null_fields_absent,
   result: .llm_explanation.result
-}' "$DDOS_RUN/causal_explain_real_v2_4.json"
+}' "$DDOS_RUN/causal_explain_real_v2_5.json"
 ```
 
 The real-run report remains a post-experiment explanation of recorded evidence,
 not an independent proof that the logs are complete or that mitigation was
-effective. A structurally accepted answer still requires review of free prose.
+effective. A structurally accepted answer still requires review of its free-text
+summary; the five per-dimension explanations are exact verifier statements.
 
 ## Synthetic protocol campaign
 

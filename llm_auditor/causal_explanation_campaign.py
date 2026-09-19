@@ -1,4 +1,4 @@
-"""Version 2.4 regression campaign for verifier-derived causal explanations."""
+"""Version 2.5 regression campaign for verifier-derived causal explanations."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def prepare_causal_report(
     report["limitations"] = [
         "This v2 campaign derives cause codes from verifier outputs; it does not turn the LLM into a verifier.",
         *report["limitations"],
-        "Exact cause-code/reference echoes are enforced; free prose still requires manual factual review.",
+        "Exact cause-code/reference echoes and per-dimension explanations are enforced; the free summary still requires manual factual review.",
         "The v1 pilot remains a separate preserved result and is not overwritten or retroactively rescored.",
     ]
     report["evaluations"] = []
@@ -127,7 +127,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
     lines = ["# CoMAS causal certificate explanations — synthetic regression", "",
              f"Status: `{report['campaign_status']}`; structurally accepted: "
              f"`{report['summary']['structurally_accepted']}/{report['summary']['evaluations_completed']}`.", "",
-             "Cause codes and references are deterministic; free prose remains pending manual review.", ""]
+             "Cause codes and per-dimension explanations are deterministic; the free summary remains pending manual review.", ""]
     responses = {item["case_id"]: item["llm_explanation"] for item in report["evaluations"]}
     for case in report["cases"]:
         lines.extend([f"## {case['case_id']} — {case['title']}", ""])
@@ -146,7 +146,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
                 for field, item in response["result"]["dimensions"].items():
                     lines.append(f"- `{field}` / `{item['cause_code']}`: {item['explanation']} "
                                  f"({', '.join(item['evidence_ids'])})")
-            lines.extend(["", "Manual prose review: PENDING."])
+            lines.extend(["", "Manual summary review: PENDING."])
         lines.append("")
     lines.extend(["## Limitations", ""])
     lines.extend(f"- {item}" for item in report["limitations"])
@@ -154,7 +154,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Testa explicações causais v2.4 sem atuar na rede")
+    parser = argparse.ArgumentParser(description="Testa explicações causais v2.5 sem atuar na rede")
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument("--ollama-url", default=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"))
     parser.add_argument("--num-ctx", type=int, default=6144)

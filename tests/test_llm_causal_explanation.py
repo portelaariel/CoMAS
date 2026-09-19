@@ -39,10 +39,7 @@ def causal_result(certificate):
                 "verdict": causes[field]["verdict"],
                 "cause_code": causes[field]["cause_code"],
                 "causal_statement": causes[field]["causal_statement"],
-                "explanation": (
-                    causes[field]["causal_statement"]
-                    + " As evidências decisivas foram preservadas."
-                ),
+                "explanation": causes[field]["causal_statement"],
                 "evidence_ids": list(
                     causes[field]["decisive_evidence_ids"]
                 ),
@@ -182,13 +179,19 @@ class CausalExplanationTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(OllamaAuditError):
                 validate_causal_explanation(changed, self.certificate)
 
-    def test_neutral_prefix_before_literal_causal_statement_is_allowed(self):
-        result = causal_result(self.certificate)
-        for field in VERDICT_FIELDS:
-            item = result["dimensions"][field]
-            item["explanation"] = "O enunciado causal afirma que " + item["causal_statement"]
-        validation = validate_causal_explanation(result, self.certificate)
-        self.assertTrue(validation["causal_statements_match_exactly"])
+    def test_extra_dimension_prose_is_rejected_even_with_literal_statement(self):
+        for extra in (
+            "O enunciado causal afirma que ",
+            " Contexto adicional não verificado.",
+        ):
+            result = causal_result(self.certificate)
+            item = result["dimensions"]["protocol_consistency"]
+            if extra.endswith(" "):
+                item["explanation"] = extra + item["causal_statement"]
+            else:
+                item["explanation"] += extra
+            with self.subTest(extra=extra), self.assertRaises(OllamaAuditError):
+                validate_causal_explanation(result, self.certificate)
 
     def test_prompt_contains_certificate_but_not_campaign_oracle(self):
         messages = causal_messages(self.certificate)
@@ -348,10 +351,15 @@ class RealRunCausalExplanationTests(unittest.TestCase):
         apply_llm(report, mode="causal-explain", client=client)
         episode = report["episodes"][0]
         self.assertEqual(before, {field: episode[field] for field in VERDICT_FIELDS})
-        self.assertEqual(episode["explanation_certificate"]["certificate_version"], "2.4")
+        self.assertEqual(
+            episode["explanation_certificate"]["certificate_version"],
+            CAUSAL_CERTIFICATE_VERSION,
+        )
         self.assertEqual(episode["llm_explanation"]["status"], "ACCEPTED_STRUCTURALLY")
         self.assertTrue(episode["llm_explanation"]["grounding_validation"]
                         ["causal_statements_match_exactly"])
+        self.assertTrue(episode["llm_explanation"]["grounding_validation"]
+                        ["dimension_explanations_match_exactly"])
 
     def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
         output = Path(self.tmp.name) / "causal-real.json"

@@ -159,7 +159,18 @@ def evaluate(run_dir: Path) -> Dict[str, Any]:
             else event.get("legacy_comparison") or {}
         )
         if comparison.get("available") is True:
-            mcda_records.append((domain, comparison.get("matches")))
+            comparison_ns = int(
+                comparison.get("captured_ns")
+                or authority.get("evaluated_ns")
+                or event.get("state_entered_ns")
+                or event.get("evaluated_ns")
+                or 0
+            )
+            mcda_records.append({
+                "domain": domain,
+                "matches": comparison.get("matches"),
+                "comparison_ns": comparison_ns,
+            })
             continue
         agent_windows = {
             int(value) for value in event.get("window_ids", [])
@@ -190,12 +201,26 @@ def evaluate(run_dir: Path) -> Dict[str, Any]:
                 matching,
                 key=lambda item: int(item.get("evaluated_ns", 0) or 0),
             )
-            mcda_records.append((
-                domain,
-                ((event.get("decision") == "AGREED")
-                 == (mcda.get("decision") == "MITIGATE")),
-            ))
-    mcda_by_domain = {domain: matches for domain, matches in mcda_records}
+            mcda_records.append({
+                "domain": domain,
+                "matches": (
+                    (event.get("decision") == "AGREED")
+                    == (mcda.get("decision") == "MITIGATE")
+                ),
+                "comparison_ns": comparison_cutoff_ns,
+            })
+    # The timeline retains every authorized AGREED transition. An early
+    # observational mismatch must not permanently poison a domain after a
+    # newer authority evaluation for the same episode records agreement.
+    # Select the chronologically latest comparable observation per domain,
+    # matching the canonicalization used by the live evaluator. Coverage of
+    # every historical authorization is still checked separately below.
+    mcda_by_domain = {}
+    for record in mcda_records:
+        previous = mcda_by_domain.get(record["domain"])
+        if (previous is None
+                or record["comparison_ns"] >= previous["comparison_ns"]):
+            mcda_by_domain[record["domain"]] = record
     blocker_requests = 0
     for path in run_dir.glob("flow-blocker-*.log"):
         blocker_requests += sum(
@@ -252,8 +277,11 @@ def evaluate(run_dir: Path) -> Dict[str, Any]:
                 and len(mcda_records) == len(authorized)
             ),
             "agent_matches_mcda": (
-                bool(mcda_records)
-                and all(matches for _domain, matches in mcda_records)
+                len(mcda_by_domain) == expected_domains
+                and all(
+                    record["matches"] is True
+                    for record in mcda_by_domain.values()
+                )
             ),
         }
     else:

@@ -112,6 +112,35 @@ def normalize_event(
             "event_id": event.get("event_id"),
         }
 
+    comparison = authority.get("mcda_comparison")
+    if layer == "agentic" and isinstance(comparison, dict):
+        mcda = _mapping(comparison.get("mcda"))
+        mcda_config = _mapping(audit.get("mcda_runtime_config"))
+        record["agent_mcda_comparison"] = {
+            "available": comparison.get("available")
+            if type(comparison.get("available")) is bool else None,
+            "matches": comparison.get("matches")
+            if type(comparison.get("matches")) is bool else None,
+            "basis": comparison.get("basis"),
+            "captured_ns": comparison.get("captured_ns")
+            if type(comparison.get("captured_ns")) is int else None,
+            "domain": observer,
+            "agent_decision": state,
+            "agent_window_ids": list(event.get("window_ids") or []),
+            "required_votes": event.get("required_votes"),
+            "mitigate_votes": list(event.get("mitigate_votes") or []),
+            "mcda_decision": mcda.get("decision"),
+            "mcda_score": mcda.get("score"),
+            "mcda_decision_threshold": mcda_config.get("decision_threshold"),
+            "mcda_window_ids": list(mcda.get("window_ids") or []),
+        }
+        sources["agent_mcda_comparison"] = [ref("authority.mcda_comparison")]
+        sources["agent_mcda_comparison.mcda_decision_threshold"] = [{
+            "artifact": "timeline.ndjson",
+            "line": audit.get("source_line"),
+            "pointer": "/collaboration/config/decision_threshold",
+        }]
+
     for key in (
         "required_votes", "mitigate_votes", "relevant_domains", "participating_domains",
         "missing_domains", "confirming_domains", "min_domains", "veto_domains",
@@ -309,6 +338,43 @@ def normalize_episode(
     )
     sources["execution_mode"].append({"artifact": "metadata.json", "pointer": "/agentic_mode"})
     sources["claim_records"] = sources.get("claim_winners", [])
+
+    latest_comparison_by_domain: Dict[str, Dict[str, Any]] = {}
+    for row in agent:
+        comparison = row.get("agent_mcda_comparison")
+        if not isinstance(comparison, dict):
+            continue
+        domain = comparison.get("domain")
+        if not isinstance(domain, str) or not domain:
+            continue
+        previous = latest_comparison_by_domain.get(domain)
+        current_ns = comparison.get("captured_ns")
+        previous_ns = previous.get("captured_ns") if previous else None
+        current_order = current_ns if type(current_ns) is int else -1
+        previous_order = previous_ns if type(previous_ns) is int else -1
+        if previous is None or current_order >= previous_order:
+            latest_comparison_by_domain[domain] = comparison
+    comparisons = [latest_comparison_by_domain[key]
+                   for key in sorted(latest_comparison_by_domain)]
+    known_matches = [item.get("matches") for item in comparisons
+                     if type(item.get("matches")) is bool]
+    if any(value is False for value in known_matches):
+        comparative_alignment = "DIVERGENT"
+    elif comparisons and len(known_matches) == len(comparisons) and all(known_matches):
+        comparative_alignment = "ALIGNED"
+    else:
+        comparative_alignment = "INSUFFICIENT_EVIDENCE"
+    comparison_sources = []
+    for row in agent:
+        comparison_sources.extend(
+            row.get("evidence_sources", {}).get("agent_mcda_comparison", [])
+        )
+        comparison_sources.extend(
+            row.get("evidence_sources", {}).get(
+                "agent_mcda_comparison.mcda_decision_threshold", []
+            )
+        )
+    sources["agent_mcda_comparison"] = comparison_sources
     return {
         "scope": "multi_domain_episode", "observations": observations,
         "claim_winners": (winners if all(row.get("claim_winners") is not None for row in agreed) else None),
@@ -328,6 +394,11 @@ def normalize_episode(
         "operational_evidence": {
             "observations_available": type(summary.get("attack_disrupted")) is bool and summary.get("measurement_valid") is not False and not summary.get("invalid_reasons") and not summary.get("contamination_reasons") and not summary.get("_audit_outcome_scope_unknown"),
             "attack_disrupted": summary.get("attack_disrupted"),
+        },
+        "comparative_alignment": comparative_alignment,
+        "agent_mcda_comparison": {
+            "status": comparative_alignment,
+            "domains": comparisons,
         },
         "evidence_sources": sources,
     }

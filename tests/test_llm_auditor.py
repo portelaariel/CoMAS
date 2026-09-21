@@ -269,6 +269,7 @@ class LLMAuditorTests(unittest.TestCase):
             "protocol_consistency": "CONSISTENT",
             "scenario_correctness": "CORRECT",
             "operational_effectiveness": "NOT_APPLICABLE",
+            "comparative_alignment": "DIVERGENT",
             "checks": [{"status": "PASS"}],
             "decision_stage": "FINAL",
             "laboratory_context": {
@@ -281,6 +282,7 @@ class LLMAuditorTests(unittest.TestCase):
         self.assertNotIn("checks", evidence)
         self.assertNotIn("decision_stage", evidence)
         self.assertNotIn("execution_status", evidence)
+        self.assertNotIn("comparative_alignment", evidence)
         self.assertNotIn("source_event_ids", evidence)
         self.assertNotIn("classification", evidence["laboratory_context"])
 

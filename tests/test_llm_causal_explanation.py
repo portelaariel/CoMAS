@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from llm_auditor.causal_certificate import (
-    CAUSAL_CERTIFICATE_VERSION, build_causal_certificate,
+    CAUSAL_CERTIFICATE_VERSION, CAUSAL_DIMENSION_FIELDS,
+    build_causal_certificate,
 )
 from llm_auditor.causal_explanation import (
     CAUSAL_EXPLANATION_CONTRACT_VERSION, CAUSAL_INPUT_VERSION,
@@ -44,7 +45,7 @@ def causal_result(certificate):
                     causes[field]["decisive_evidence_ids"]
                 ),
             }
-            for field in VERDICT_FIELDS
+            for field in CAUSAL_DIMENSION_FIELDS
         },
     }
 
@@ -360,6 +361,50 @@ class RealRunCausalExplanationTests(unittest.TestCase):
                         ["causal_statements_match_exactly"])
         self.assertTrue(episode["llm_explanation"]["grounding_validation"]
                         ["dimension_explanations_match_exactly"])
+
+    def test_agent_mcda_divergence_is_explained_without_changing_protocol_verdict(self):
+        rows = auditor_test_support.LLMAuditorTests().valid_rows()
+        mcda_event = rows[1]["collaboration"]["decision_events"][0]
+        mcda_event.update({
+            "decision": "CORROBORATED",
+            "score": 0.787231,
+            "window_ids": [7],
+            "confirming_domains": ["domain-0", "domain-1"],
+        })
+        mcda_event.pop("mitigation", None)
+        for row in rows:
+            row["collaboration"]["config"] = {
+                "alert_threshold": 0.6,
+                "decision_threshold": 0.8,
+            }
+            for event in row["agentic"]["decision_events"]:
+                if event.get("decision") != "AGREED":
+                    continue
+                event["window_ids"] = [7]
+                event["authority"]["mcda_comparison"] = {
+                    "available": True,
+                    "matches": False,
+                    "basis": "authority_evaluation",
+                    "captured_ns": event["state_entered_ns"],
+                    "mcda": {
+                        "decision": "CORROBORATED",
+                        "score": 0.787231,
+                        "window_ids": [7],
+                    },
+                }
+        divergent_dir = Path(self.tmp.name) / "divergent-run"
+        divergent_dir.mkdir()
+        auditor_test_support.LLMAuditorTests().write_run(divergent_dir, rows)
+        episode = audit_run(divergent_dir)["episodes"][0]
+        self.assertEqual(episode["protocol_consistency"], "CONSISTENT")
+        self.assertEqual(episode["scenario_correctness"], "CORRECT")
+        self.assertEqual(episode["comparative_alignment"], "DIVERGENT")
+        certificate = build_causal_certificate(episode)["certificate"]
+        comparison = certificate["decisive_causes"]["comparative_alignment"]
+        self.assertEqual(comparison["cause_code"], "recorded_agent_mcda_divergence")
+        self.assertIn("quórum de propostas MITIGATE", comparison["causal_statement"])
+        self.assertIn("abaixo do limiar de decisão", comparison["causal_statement"])
+        self.assertEqual(comparison["decisive_evidence_ids"], ["C01"])
 
     def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
         output = Path(self.tmp.name) / "causal-real.json"

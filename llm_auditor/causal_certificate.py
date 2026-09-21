@@ -13,7 +13,9 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.5"
+CAUSAL_CERTIFICATE_VERSION = "2.6"
+COMPARATIVE_FIELD = "comparative_alignment"
+CAUSAL_DIMENSION_FIELDS = [*VERDICT_FIELDS, COMPARATIVE_FIELD]
 
 
 PROTOCOL_FAILURE_STATEMENTS = {
@@ -87,6 +89,12 @@ CAUSE_CODES = {
         "NOT_APPLICABLE": "no_applicable_local_actuation",
         "UNKNOWN": "operational_outcome_unavailable",
     },
+}
+
+COMPARATIVE_CAUSE_CODES = {
+    "ALIGNED": "recorded_agent_mcda_alignment",
+    "DIVERGENT": "recorded_agent_mcda_divergence",
+    "INSUFFICIENT_EVIDENCE": "agent_mcda_comparison_incomplete",
 }
 
 
@@ -259,6 +267,53 @@ def _facts_for(field: str, cause_code: str, audit: Dict[str, Any],
     return facts
 
 
+def _comparative_statement(audit: Dict[str, Any], verdict: str) -> str:
+    if verdict == "ALIGNED":
+        return (
+            "A comparação registrada no instante da autoridade indica "
+            "alinhamento entre a decisão dos agentes e o MCDA observacional."
+        )
+    if verdict == "INSUFFICIENT_EVIDENCE":
+        return (
+            "A evidência registrada não permite concluir o alinhamento entre "
+            "a decisão dos agentes e o MCDA observacional."
+        )
+    comparison = audit.get("agent_mcda_comparison") or {}
+    domains = comparison.get("domains") or []
+    valid_domains = [item for item in domains if isinstance(item, dict)]
+    complete_domains = bool(valid_domains) and len(valid_domains) == len(domains)
+    agent_agreed = complete_domains and all(
+        item.get("agent_decision") == "AGREED" for item in valid_domains
+    )
+    mcda_corroborated = complete_domains and all(
+        item.get("mcda_decision") == "CORROBORATED"
+        for item in valid_domains
+    )
+    quorum = complete_domains and all(
+        type(item.get("required_votes")) is int
+        and isinstance(item.get("mitigate_votes"), list)
+        and len(set(item["mitigate_votes"])) >= item["required_votes"] > 0
+        for item in valid_domains
+    )
+    below_threshold = complete_domains and all(
+        type(item.get("mcda_score")) in (int, float)
+        and type(item.get("mcda_decision_threshold")) in (int, float)
+        and item["mcda_score"] < item["mcda_decision_threshold"]
+        for item in valid_domains
+    )
+    if agent_agreed and mcda_corroborated and quorum and below_threshold:
+        return (
+            "Os agentes autoritativos registraram AGREED com quórum de "
+            "propostas MITIGATE, enquanto o MCDA observacional registrou "
+            "CORROBORATED porque sua pontuação permaneceu abaixo do limiar "
+            "de decisão."
+        )
+    return (
+        "A comparação registrada no instante da autoridade indica divergência "
+        "entre a decisão dos agentes e o MCDA observacional."
+    )
+
+
 def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
     base = build_certificate(audit)
     certificate = copy.deepcopy(base["certificate"])
@@ -289,6 +344,32 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
             "facts": _facts_for(field, cause_code, audit, decisive),
             "null_policy": "null outside unavailable_fields is not a cause",
         }
+    comparison = _known_values(audit.get("agent_mcda_comparison") or {})
+    comparison_verdict = audit.get("comparative_alignment")
+    if comparison_verdict not in COMPARATIVE_CAUSE_CODES:
+        comparison_verdict = "INSUFFICIENT_EVIDENCE"
+    comparison_id = "C01"
+    comparison_sources = copy.deepcopy(
+        (audit.get("evidence_sources") or {}).get("agent_mcda_comparison") or []
+    )
+    certificate["comparative_evidence"] = [{
+        "id": comparison_id,
+        "dimension": COMPARATIVE_FIELD,
+        "status": comparison_verdict,
+        "witness": {"values": comparison},
+    }]
+    certificate["verdicts"][COMPARATIVE_FIELD] = comparison_verdict
+    certificate["verdict_support"][COMPARATIVE_FIELD] = [comparison_id]
+    certificate["coverage"]["comparative_evidence_count"] = 1
+    causes[COMPARATIVE_FIELD] = {
+        "verdict": comparison_verdict,
+        "cause_code": COMPARATIVE_CAUSE_CODES[comparison_verdict],
+        "causal_statement": _comparative_statement(audit, comparison_verdict),
+        "decisive_evidence_ids": [comparison_id],
+        "supporting_evidence_ids": [],
+        "facts": comparison,
+        "null_policy": "null fields are omitted and cannot be used as causes",
+    }
     v1_sha = certificate["sha256"]
     certificate["certificate_version"] = CAUSAL_CERTIFICATE_VERSION
     certificate["derived_from_certificate_v1_sha256"] = v1_sha
@@ -296,6 +377,10 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
     certificate.pop("sha256")
     certificate["sha256"] = digest(certificate)
     ledger = copy.deepcopy(base["ledger"])
+    ledger.setdefault("groups", {})[comparison_id] = {
+        "origin": "derived_agent_mcda_authority_comparison",
+        "source_refs": comparison_sources,
+    }
     ledger["derived_from_certificate_v1_sha256"] = v1_sha
     ledger["certificate_sha256"] = certificate["sha256"]
     return {"certificate": certificate, "ledger": ledger}

@@ -93,6 +93,13 @@ def extract_decision_events(
     for row_index, row in enumerate(timeline_rows):
         sampled_ns = _integer(row.get("sampled_ns"))
         status_cid = str((row.get("status") or {}).get("cid") or "")
+        collaboration_block = row.get("collaboration")
+        mcda_runtime_config = (
+            collaboration_block.get("config")
+            if isinstance(collaboration_block, dict)
+            and isinstance(collaboration_block.get("config"), dict)
+            else {}
+        )
         for section, layer in (("agentic", "agentic"),
                                ("collaboration", "mcda")):
             block = row.get(section)
@@ -120,6 +127,9 @@ def extract_decision_events(
                     "runtime_config": json.loads(json.dumps(
                         block.get("config")
                         if isinstance(block.get("config"), dict) else {}
+                    )),
+                    "mcda_runtime_config": json.loads(json.dumps(
+                        mcda_runtime_config
                     )),
                 }
                 timestamp = event_time_ns(enriched)
@@ -384,6 +394,7 @@ def evaluation_evidence(record: Dict[str, Any]) -> Dict[str, Any]:
         "operational_effectiveness",
         "protocol_consistency",
         "scenario_correctness",
+        "comparative_alignment",
         "source_event_ids",
         "rules_version",
         "verdict_support",

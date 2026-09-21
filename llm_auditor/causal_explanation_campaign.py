@@ -1,4 +1,4 @@
-"""Version 2.5 regression campaign for verifier-derived causal explanations."""
+"""Version 2.6 regression campaign for verifier-derived causal explanations."""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from .causal_certificate import attach_causal_certificate
+from .causal_certificate import (
+    CAUSAL_DIMENSION_FIELDS, attach_causal_certificate,
+)
 from .certificate import digest
 from .causal_explanation import (
     CAUSAL_EXPLANATION_CONTRACT_VERSION, CAUSAL_SYSTEM_PROMPT,
@@ -24,7 +26,6 @@ from .explanation_campaign import (
     summarize,
 )
 from .ollama import OllamaAuditError
-from .rules import VERDICT_FIELDS
 from .validation_dataset import HOLDOUT_PATH
 
 
@@ -131,7 +132,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
     responses = {item["case_id"]: item["llm_explanation"] for item in report["evaluations"]}
     for case in report["cases"]:
         lines.extend([f"## {case['case_id']} — {case['title']}", ""])
-        for field in VERDICT_FIELDS:
+        for field in CAUSAL_DIMENSION_FIELDS:
             cause = case["causal_review"][field]
             lines.append(f"- `{field}`: `{cause['verdict']}` / `{cause['cause_code']}` / "
                          f"{', '.join(cause['decisive_evidence_ids'])}")
@@ -154,7 +155,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Testa explicações causais v2.5 sem atuar na rede")
+    parser = argparse.ArgumentParser(description="Testa explicações causais v2.6 sem atuar na rede")
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument("--ollama-url", default=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"))
     parser.add_argument("--num-ctx", type=int, default=6144)

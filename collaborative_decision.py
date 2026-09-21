@@ -184,7 +184,12 @@ def score_collaborative_evidence(
     contributions = {
         name: criteria[name] * weights[name] for name in weights
     }
-    score = clip01(sum(contributions.values()))
+    # Use the same canonical value for both the protocol decision and its
+    # persisted evidence.  Classifying with the full-precision value and only
+    # then rounding it for the timeline can otherwise produce an apparently
+    # contradictory event at a threshold (for example, CORROBORATED with a
+    # recorded score of 0.800000 when the decision threshold is 0.8).
+    score = round(clip01(sum(contributions.values())), 6)
     if score < suspect_threshold:
         decision = "NORMAL"
     elif score < alert_threshold:
@@ -198,7 +203,7 @@ def score_collaborative_evidence(
 
     return {
         **base,
-        "score": round(score, 6),
+        "score": score,
         "criteria": {name: round(value, 6) for name, value in criteria.items()},
         "contributions": {
             name: round(value, 6) for name, value in contributions.items()

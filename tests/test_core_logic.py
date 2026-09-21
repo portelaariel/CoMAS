@@ -312,6 +312,46 @@ class PredictorTests(unittest.TestCase):
                          **kwargs)
         self.assertEqual(mismatch["decision"], "MODEL_MISMATCH")
 
+    def test_collaborative_score_uses_recorded_precision_at_decision_threshold(self):
+        def evidence(severity):
+            return {
+                "cid": "domain-0",
+                "ts_ns": 10_000_000_000,
+                "z_score": 1.0 + 2.0 * severity,
+                "threshold": 1.0,
+                "observed_bps": 10.0,
+                "predicted_bps": 1.0,
+                "persistence_windows": 1,
+                "model_reliability": 1.0,
+                "flow_specificity": 1.0,
+                "model_id": "model-a",
+            }
+
+        kwargs = {
+            "now_ns_value": 10_000_000_000,
+            "expected_domains": 1,
+            "min_domains": 1,
+            "weights": {"severity": 1.0},
+            "freshness_s": 12.0,
+            "persistence_windows": 1,
+            "rate_ratio_max": 10.0,
+            "suspect_threshold": 0.4,
+            "alert_threshold": 0.6,
+            "decision_threshold": 0.8,
+        }
+
+        rounded_to_threshold = score_collaborative_evidence(
+            [evidence(0.7999996)], **kwargs
+        )
+        self.assertEqual(rounded_to_threshold["score"], 0.8)
+        self.assertEqual(rounded_to_threshold["decision"], "MITIGATE")
+
+        remains_below_threshold = score_collaborative_evidence(
+            [evidence(0.7999994)], **kwargs
+        )
+        self.assertEqual(remains_below_threshold["score"], 0.799999)
+        self.assertEqual(remains_below_threshold["decision"], "CORROBORATED")
+
     def test_collaborative_engine_defers_local_mitigation(self):
         class FakeMitigator:
             def __init__(self):

@@ -27,6 +27,71 @@ def _aggregate_counts(rows: List[Dict[str, Any]], key: str) -> Any:
     return known if known > 0 or (values and all(type(value) is int for value in values)) else None
 
 
+def _comparison_outcome(comparison: Dict[str, Any]) -> str:
+    matches = comparison.get("matches")
+    if matches is True:
+        return "ALIGNED"
+    if matches is False:
+        return "DIVERGENT"
+    return "INSUFFICIENT_EVIDENCE"
+
+
+def _exceptional_comparison_groups(
+    comparisons: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    groups: List[Dict[str, Any]] = []
+    signature_fields = (
+        "status", "domain", "agent_decision", "agent_window_ids",
+        "mcda_decision", "mcda_window_ids", "reason",
+    )
+    for comparison in comparisons:
+        status = _comparison_outcome(comparison)
+        if status == "ALIGNED":
+            continue
+        signature = {
+            "status": status,
+            "domain": comparison.get("domain"),
+            "agent_decision": comparison.get("agent_decision"),
+            "agent_window_ids": list(comparison.get("agent_window_ids") or []),
+            "mcda_decision": comparison.get("mcda_decision"),
+            "mcda_window_ids": list(comparison.get("mcda_window_ids") or []),
+            "reason": comparison.get("reason"),
+        }
+        group = next((item for item in groups if all(
+            item.get(field) == signature.get(field)
+            for field in signature_fields
+        )), None)
+        captured_ns = comparison.get("captured_ns")
+        if group is None:
+            group = {
+                **signature,
+                "occurrences": 0,
+                "first_captured_ns": captured_ns,
+                "last_captured_ns": captured_ns,
+                "first_mcda_score": comparison.get("mcda_score"),
+                "last_mcda_score": comparison.get("mcda_score"),
+                "mcda_decision_threshold": comparison.get(
+                    "mcda_decision_threshold"
+                ),
+            }
+            groups.append(group)
+        group["occurrences"] += 1
+        if type(captured_ns) is int:
+            first_ns = group.get("first_captured_ns")
+            last_ns = group.get("last_captured_ns")
+            if type(first_ns) is not int or captured_ns < first_ns:
+                group["first_captured_ns"] = captured_ns
+                group["first_mcda_score"] = comparison.get("mcda_score")
+            if type(last_ns) is not int or captured_ns >= last_ns:
+                group["last_captured_ns"] = captured_ns
+                group["last_mcda_score"] = comparison.get("mcda_score")
+    return sorted(groups, key=lambda item: (
+        item.get("first_captured_ns")
+        if type(item.get("first_captured_ns")) is int else -1,
+        str(item.get("domain") or ""),
+    ))
+
+
 def _execution_facts(execution: Dict[str, Any], layer: str) -> Dict[str, Any]:
     """Keep the reported flag distinct from a legacy MCDA simulated attempt.
 
@@ -344,6 +409,7 @@ def normalize_episode(
     sources["execution_mode"].append({"artifact": "metadata.json", "pointer": "/agentic_mode"})
     sources["claim_records"] = sources.get("claim_winners", [])
 
+    comparison_records: List[Dict[str, Any]] = []
     latest_comparison_by_domain: Dict[str, Dict[str, Any]] = {}
     for row in agent:
         comparison = row.get("agent_mcda_comparison")
@@ -352,6 +418,7 @@ def normalize_episode(
         domain = comparison.get("domain")
         if not isinstance(domain, str) or not domain:
             continue
+        comparison_records.append(comparison)
         previous = latest_comparison_by_domain.get(domain)
         current_ns = comparison.get("captured_ns")
         previous_ns = previous.get("captured_ns") if previous else None
@@ -369,6 +436,19 @@ def normalize_episode(
         comparative_alignment = "ALIGNED"
     else:
         comparative_alignment = "INSUFFICIENT_EVIDENCE"
+    comparison_counts = {
+        status: sum(
+            _comparison_outcome(item) == status
+            for item in comparison_records
+        )
+        for status in (
+            "ALIGNED", "DIVERGENT", "INSUFFICIENT_EVIDENCE",
+        )
+    }
+    transient_divergence_observed = (
+        comparative_alignment == "ALIGNED"
+        and comparison_counts["DIVERGENT"] > 0
+    )
     comparison_sources = []
     for row in agent:
         comparison_sources.extend(
@@ -403,7 +483,18 @@ def normalize_episode(
         "comparative_alignment": comparative_alignment,
         "agent_mcda_comparison": {
             "status": comparative_alignment,
+            "aggregation": "latest_comparison_per_domain",
+            "final_alignment": comparative_alignment,
+            "records_total": len(comparison_records),
+            "comparison_counts": comparison_counts,
+            "transient_divergence_observed": transient_divergence_observed,
+            "incomplete_observation_observed": (
+                comparison_counts["INSUFFICIENT_EVIDENCE"] > 0
+            ),
             "domains": comparisons,
+            "exceptional_groups": _exceptional_comparison_groups(
+                comparison_records
+            ),
         },
         "evidence_sources": sources,
     }

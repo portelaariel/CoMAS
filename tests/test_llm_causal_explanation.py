@@ -452,6 +452,71 @@ class RealRunCausalExplanationTests(unittest.TestCase):
                          "decisão MCDA pertence a outro episódio")
         self.assertEqual(domains[0]["mcda_published_ns"], 190)
 
+    def test_final_alignment_preserves_transient_divergence_profile(self):
+        rows = auditor_test_support.LLMAuditorTests().valid_rows()
+        rows[1]["collaboration"]["decision_events"][0].update({
+            "window_ids": [7],
+        })
+        for row in rows:
+            row["collaboration"]["config"] = {"decision_threshold": 0.8}
+            for event in row["agentic"]["decision_events"]:
+                if event.get("decision") != "AGREED":
+                    continue
+                event["window_ids"] = [7]
+                event["authority"]["mcda_comparison"] = {
+                    "available": True,
+                    "matches": True,
+                    "basis": "authority_evaluation",
+                    "captured_ns": event["state_entered_ns"],
+                    "mcda": {
+                        "decision": "MITIGATE",
+                        "score": 0.92,
+                        "window_ids": [7],
+                    },
+                }
+        historical = copy.deepcopy(
+            rows[1]["agentic"]["decision_events"][0]
+        )
+        historical["event_id"] += ":transient-divergence"
+        historical["state_entered_ns"] = 190
+        historical["evaluated_ns"] = 190
+        historical["authority"]["mcda_comparison"].update({
+            "matches": False,
+            "captured_ns": 190,
+            "mcda": {
+                "decision": "CORROBORATED",
+                "score": 0.75,
+                "window_ids": [7],
+            },
+        })
+        rows[1]["agentic"]["decision_events"].insert(0, historical)
+        profile_dir = Path(self.tmp.name) / "temporal-profile-run"
+        profile_dir.mkdir()
+        auditor_test_support.LLMAuditorTests().write_run(profile_dir, rows)
+        episode = audit_run(profile_dir)["episodes"][0]
+        profile = episode["agent_mcda_comparison"]
+        self.assertEqual(episode["comparative_alignment"], "ALIGNED")
+        self.assertEqual(profile["final_alignment"], "ALIGNED")
+        self.assertEqual(profile["records_total"], 3)
+        self.assertEqual(profile["comparison_counts"], {
+            "ALIGNED": 2,
+            "DIVERGENT": 1,
+            "INSUFFICIENT_EVIDENCE": 0,
+        })
+        self.assertTrue(profile["transient_divergence_observed"])
+        self.assertEqual(len(profile["exceptional_groups"]), 1)
+        self.assertEqual(
+            profile["exceptional_groups"][0]["status"], "DIVERGENT",
+        )
+        cause = build_causal_certificate(episode)["certificate"][
+            "decisive_causes"
+        ]["comparative_alignment"]
+        self.assertEqual(
+            cause["cause_code"],
+            "final_alignment_after_transient_divergence",
+        )
+        self.assertIn("divergentes anteriores", cause["causal_statement"])
+
     def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
         output = Path(self.tmp.name) / "causal-real.json"
         markdown = Path(self.tmp.name) / "causal-real.md"

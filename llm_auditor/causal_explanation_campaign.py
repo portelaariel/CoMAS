@@ -1,4 +1,4 @@
-"""Version 2.7 regression campaign for verifier-derived causal explanations."""
+"""Version 2.8 regression campaign for verifier-derived causal explanations."""
 
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ def render_markdown(report: Dict[str, Any]) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Testa explicações causais v2.7 sem atuar na rede")
+    parser = argparse.ArgumentParser(description="Testa explicações causais v2.8 sem atuar na rede")
     parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument("--ollama-url", default=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"))
     parser.add_argument("--num-ctx", type=int, default=6144)

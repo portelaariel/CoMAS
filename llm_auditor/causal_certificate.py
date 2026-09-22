@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.7"
+CAUSAL_CERTIFICATE_VERSION = "2.8"
 COMPARATIVE_FIELD = "comparative_alignment"
 CAUSAL_DIMENSION_FIELDS = [*VERDICT_FIELDS, COMPARATIVE_FIELD]
 
@@ -298,6 +298,10 @@ def _windows_are_disjoint_at_authority(audit: Dict[str, Any]) -> bool:
 
 
 def _comparative_cause(audit: Dict[str, Any], verdict: str) -> str:
+    comparison = audit.get("agent_mcda_comparison") or {}
+    if (verdict == "ALIGNED"
+            and comparison.get("transient_divergence_observed") is True):
+        return "final_alignment_after_transient_divergence"
     if (verdict == "INSUFFICIENT_EVIDENCE"
             and _windows_are_disjoint_at_authority(audit)):
         return "agent_mcda_window_mismatch_at_authority"
@@ -308,6 +312,12 @@ def _comparative_statement(
     audit: Dict[str, Any], verdict: str, cause_code: str,
 ) -> str:
     if verdict == "ALIGNED":
+        if cause_code == "final_alignment_after_transient_divergence":
+            return (
+                "A comparação mais recente de cada domínio indica alinhamento "
+                "final entre agentes e MCDA, mas comparações divergentes "
+                "anteriores também foram registradas no episódio."
+            )
         return (
             "A comparação registrada no instante da autoridade indica "
             "alinhamento entre a decisão dos agentes e o MCDA observacional."

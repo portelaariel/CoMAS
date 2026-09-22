@@ -786,6 +786,8 @@ class CollaborativeManagerTests(unittest.TestCase):
                     globals_dict[name] = value
 
         decision = manager.decisions[flow]
+        self.assertEqual(decision["published_ns"], 10_000_000_000)
+        self.assertGreaterEqual(decision["published_ns"], decision["evaluated_ns"])
         self.assertIsNone(decision["claim"])
         self.assertFalse(decision["mitigation"]["attempted"])
         self.assertEqual(decision["mitigation"]["owner"], "agentic")

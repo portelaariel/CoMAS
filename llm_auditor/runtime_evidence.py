@@ -122,6 +122,7 @@ def normalize_event(
             "matches": comparison.get("matches")
             if type(comparison.get("matches")) is bool else None,
             "basis": comparison.get("basis"),
+            "reason": comparison.get("reason"),
             "captured_ns": comparison.get("captured_ns")
             if type(comparison.get("captured_ns")) is int else None,
             "domain": observer,
@@ -131,6 +132,10 @@ def normalize_event(
             "mitigate_votes": list(event.get("mitigate_votes") or []),
             "mcda_decision": mcda.get("decision"),
             "mcda_score": mcda.get("score"),
+            "mcda_evaluated_ns": mcda.get("evaluated_ns")
+            if type(mcda.get("evaluated_ns")) is int else None,
+            "mcda_published_ns": mcda.get("published_ns")
+            if type(mcda.get("published_ns")) is int else None,
             "mcda_decision_threshold": mcda_config.get("decision_threshold"),
             "mcda_window_ids": list(mcda.get("window_ids") or []),
         }

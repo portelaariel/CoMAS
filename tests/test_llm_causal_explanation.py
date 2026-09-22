@@ -406,6 +406,52 @@ class RealRunCausalExplanationTests(unittest.TestCase):
         self.assertIn("abaixo do limiar de decisão", comparison["causal_statement"])
         self.assertEqual(comparison["decisive_evidence_ids"], ["C01"])
 
+    def test_adjacent_mcda_window_has_specific_insufficient_evidence_cause(self):
+        rows = auditor_test_support.LLMAuditorTests().valid_rows()
+        rows[1]["collaboration"]["decision_events"][0].update({
+            "window_ids": [7],
+            "published_ns": 190,
+        })
+        for row in rows:
+            row["collaboration"]["config"] = {"decision_threshold": 0.8}
+            for event in row["agentic"]["decision_events"]:
+                if event.get("decision") != "AGREED":
+                    continue
+                event["window_ids"] = [8]
+                event["authority"]["mcda_comparison"] = {
+                    "available": False,
+                    "matches": None,
+                    "reason": "decisão MCDA pertence a outro episódio",
+                    "basis": "authority_evaluation",
+                    "captured_ns": event["state_entered_ns"],
+                    "mcda": {
+                        "decision": "MITIGATE",
+                        "score": 0.92,
+                        "evaluated_ns": 180,
+                        "published_ns": 190,
+                        "window_ids": [7],
+                    },
+                }
+        offset_dir = Path(self.tmp.name) / "offset-run"
+        offset_dir.mkdir()
+        auditor_test_support.LLMAuditorTests().write_run(offset_dir, rows)
+        episode = audit_run(offset_dir)["episodes"][0]
+        self.assertEqual(
+            episode["comparative_alignment"], "INSUFFICIENT_EVIDENCE",
+        )
+        cause = build_causal_certificate(episode)["certificate"][
+            "decisive_causes"
+        ]["comparative_alignment"]
+        self.assertEqual(
+            cause["cause_code"],
+            "agent_mcda_window_mismatch_at_authority",
+        )
+        self.assertIn("janela diferente", cause["causal_statement"])
+        domains = cause["facts"]["domains"]
+        self.assertEqual(domains[0]["reason"],
+                         "decisão MCDA pertence a outro episódio")
+        self.assertEqual(domains[0]["mcda_published_ns"], 190)
+
     def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
         output = Path(self.tmp.name) / "causal-real.json"
         markdown = Path(self.tmp.name) / "causal-real.md"

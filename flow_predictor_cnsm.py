@@ -1211,6 +1211,7 @@ class AgenticShadowManager:
                 "score": row.get("score"),
                 "confirming_domains": list(row.get("confirming_domains", [])),
                 "evaluated_ns": row.get("evaluated_ns"),
+                "published_ns": row.get("published_ns"),
                 "window_ids": list(row.get("window_ids", [])),
             } for row in candidates]
         if not legacy_rows:
@@ -1806,6 +1807,9 @@ class CollaborativeDecisionManager:
                         }
 
             with self.lock:
+                # evaluated_ns marca o início da avaliação. published_ns marca
+                # quando o resultado passou a estar visível aos comparadores.
+                decision["published_ns"] = now_ns()
                 previous_state = self.last_logged_state.get(flow)
                 self.decisions[flow] = decision
                 decision_key = (

@@ -594,6 +594,7 @@ class AgenticShadowManagerTests(unittest.TestCase):
                 "score": 0.95,
                 "confirming_domains": ["domain-0", "domain-1"],
                 "evaluated_ns": self.NOW_NS + 1,
+                "published_ns": self.NOW_NS + 2,
                 "window_ids": [2],
             }], maxlen=200),
         )
@@ -607,6 +608,7 @@ class AgenticShadowManagerTests(unittest.TestCase):
         self.assertTrue(comparison["matches"])
         self.assertEqual(comparison["matched_window_ids"], [2])
         self.assertEqual(comparison["mcda"]["decision"], "MITIGATE")
+        self.assertEqual(comparison["mcda"]["published_ns"], self.NOW_NS + 2)
 
 
 if __name__ == "__main__":

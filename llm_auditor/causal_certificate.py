@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.6"
+CAUSAL_CERTIFICATE_VERSION = "2.7"
 COMPARATIVE_FIELD = "comparative_alignment"
 CAUSAL_DIMENSION_FIELDS = [*VERDICT_FIELDS, COMPARATIVE_FIELD]
 
@@ -267,20 +267,66 @@ def _facts_for(field: str, cause_code: str, audit: Dict[str, Any],
     return facts
 
 
-def _comparative_statement(audit: Dict[str, Any], verdict: str) -> str:
+def _comparison_domains(audit: Dict[str, Any]) -> List[Dict[str, Any]]:
+    comparison = audit.get("agent_mcda_comparison") or {}
+    domains = comparison.get("domains") or []
+    if not isinstance(domains, list):
+        return []
+    return [item for item in domains if isinstance(item, dict)]
+
+
+def _windows_are_disjoint_at_authority(audit: Dict[str, Any]) -> bool:
+    domains = _comparison_domains(audit)
+    if not domains:
+        return False
+    for item in domains:
+        agent_windows = item.get("agent_window_ids")
+        mcda_windows = item.get("mcda_window_ids")
+        if item.get("available") is not False:
+            return False
+        if not isinstance(agent_windows, list) or not agent_windows:
+            return False
+        if not isinstance(mcda_windows, list) or not mcda_windows:
+            return False
+        try:
+            overlap = set(agent_windows) & set(mcda_windows)
+        except TypeError:
+            return False
+        if overlap:
+            return False
+    return True
+
+
+def _comparative_cause(audit: Dict[str, Any], verdict: str) -> str:
+    if (verdict == "INSUFFICIENT_EVIDENCE"
+            and _windows_are_disjoint_at_authority(audit)):
+        return "agent_mcda_window_mismatch_at_authority"
+    return COMPARATIVE_CAUSE_CODES[verdict]
+
+
+def _comparative_statement(
+    audit: Dict[str, Any], verdict: str, cause_code: str,
+) -> str:
     if verdict == "ALIGNED":
         return (
             "A comparação registrada no instante da autoridade indica "
             "alinhamento entre a decisão dos agentes e o MCDA observacional."
         )
     if verdict == "INSUFFICIENT_EVIDENCE":
+        if cause_code == "agent_mcda_window_mismatch_at_authority":
+            return (
+                "No instante da autoridade, o snapshot MCDA disponível "
+                "pertencia a uma janela diferente da decisão dos agentes; "
+                "por isso o alinhamento do mesmo episódio não pôde ser "
+                "determinado."
+            )
         return (
             "A evidência registrada não permite concluir o alinhamento entre "
             "a decisão dos agentes e o MCDA observacional."
         )
     comparison = audit.get("agent_mcda_comparison") or {}
     domains = comparison.get("domains") or []
-    valid_domains = [item for item in domains if isinstance(item, dict)]
+    valid_domains = _comparison_domains(audit)
     complete_domains = bool(valid_domains) and len(valid_domains) == len(domains)
     agent_agreed = complete_domains and all(
         item.get("agent_decision") == "AGREED" for item in valid_domains
@@ -348,6 +394,7 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
     comparison_verdict = audit.get("comparative_alignment")
     if comparison_verdict not in COMPARATIVE_CAUSE_CODES:
         comparison_verdict = "INSUFFICIENT_EVIDENCE"
+    comparison_cause = _comparative_cause(audit, comparison_verdict)
     comparison_id = "C01"
     comparison_sources = copy.deepcopy(
         (audit.get("evidence_sources") or {}).get("agent_mcda_comparison") or []
@@ -363,8 +410,10 @@ def build_causal_certificate(audit: Dict[str, Any]) -> Dict[str, Any]:
     certificate["coverage"]["comparative_evidence_count"] = 1
     causes[COMPARATIVE_FIELD] = {
         "verdict": comparison_verdict,
-        "cause_code": COMPARATIVE_CAUSE_CODES[comparison_verdict],
-        "causal_statement": _comparative_statement(audit, comparison_verdict),
+        "cause_code": comparison_cause,
+        "causal_statement": _comparative_statement(
+            audit, comparison_verdict, comparison_cause,
+        ),
         "decisive_evidence_ids": [comparison_id],
         "supporting_evidence_ids": [],
         "facts": comparison,

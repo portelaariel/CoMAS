@@ -508,6 +508,30 @@ class RealRunCausalExplanationTests(unittest.TestCase):
         self.assertEqual(
             profile["exceptional_groups"][0]["status"], "DIVERGENT",
         )
+        realignment = profile["realignment_profile"]
+        self.assertEqual(realignment["divergent_comparisons"], 1)
+        self.assertEqual(realignment["realigned_comparisons"], 1)
+        self.assertEqual(realignment["unresolved_comparisons"], 0)
+        self.assertEqual(realignment["latency_ms"], {
+            "measured": 1,
+            "values": [0.00001],
+            "minimum": 0.00001,
+            "mean": 0.00001,
+            "maximum": 0.00001,
+        })
+        observation = realignment["observations"][0]
+        self.assertEqual(observation["domain"], "domain-0")
+        self.assertTrue(
+            observation["divergence_event_id"].endswith(
+                ":transient-divergence"
+            )
+        )
+        self.assertEqual(
+            observation["realignment_event_id"], "domain-0:agreement:200"
+        )
+        self.assertEqual(observation["divergence_captured_ns"], 190)
+        self.assertEqual(observation["realignment_captured_ns"], 200)
+        self.assertEqual(observation["mcda_score_delta"], 0.17)
         cause = build_causal_certificate(episode)["certificate"][
             "decisive_causes"
         ]["comparative_alignment"]
@@ -516,6 +540,50 @@ class RealRunCausalExplanationTests(unittest.TestCase):
             "final_alignment_after_transient_divergence",
         )
         self.assertIn("divergentes anteriores", cause["causal_statement"])
+        self.assertIn("0.00001 ms", cause["causal_statement"])
+        self.assertIn("somente este episódio", cause["causal_statement"])
+
+    def test_unresolved_divergence_does_not_invent_realignment_latency(self):
+        rows = auditor_test_support.LLMAuditorTests().valid_rows()
+        rows[1]["collaboration"]["config"] = {"decision_threshold": 0.8}
+        event = rows[1]["agentic"]["decision_events"][0]
+        event["window_ids"] = [7]
+        event["authority"]["mcda_comparison"] = {
+            "available": True,
+            "matches": False,
+            "basis": "authority_evaluation",
+            "captured_ns": 200,
+            "mcda": {
+                "decision": "CORROBORATED",
+                "score": 0.79,
+                "window_ids": [7],
+            },
+        }
+        unresolved_dir = Path(self.tmp.name) / "unresolved-profile-run"
+        unresolved_dir.mkdir()
+        auditor_test_support.LLMAuditorTests().write_run(
+            unresolved_dir, rows,
+        )
+        episode = audit_run(unresolved_dir)["episodes"][0]
+        profile = episode["agent_mcda_comparison"]["realignment_profile"]
+        self.assertEqual(episode["comparative_alignment"], "DIVERGENT")
+        self.assertEqual(profile["divergent_comparisons"], 1)
+        self.assertEqual(profile["realigned_comparisons"], 0)
+        self.assertEqual(profile["unresolved_comparisons"], 1)
+        self.assertEqual(profile["latency_ms"], {
+            "measured": 0,
+            "values": [],
+            "minimum": None,
+            "mean": None,
+            "maximum": None,
+        })
+        observation = profile["observations"][0]
+        self.assertFalse(observation["realigned"])
+        self.assertEqual(
+            observation["unresolved_reason"],
+            "no_later_aligned_comparison_in_episode",
+        )
+        self.assertNotIn("observed_realignment_ms", observation)
 
     def test_real_run_causal_cli_saves_full_proof_and_markdown(self):
         output = Path(self.tmp.name) / "causal-real.json"

@@ -13,7 +13,7 @@ from .certificate import build_certificate, digest
 from .rules import VERDICT_FIELDS
 
 
-CAUSAL_CERTIFICATE_VERSION = "2.8"
+CAUSAL_CERTIFICATE_VERSION = "2.9"
 COMPARATIVE_FIELD = "comparative_alignment"
 CAUSAL_DIMENSION_FIELDS = [*VERDICT_FIELDS, COMPARATIVE_FIELD]
 
@@ -313,11 +313,34 @@ def _comparative_statement(
 ) -> str:
     if verdict == "ALIGNED":
         if cause_code == "final_alignment_after_transient_divergence":
-            return (
+            statement = (
                 "A comparação mais recente de cada domínio indica alinhamento "
                 "final entre agentes e MCDA, mas comparações divergentes "
                 "anteriores também foram registradas no episódio."
             )
+            comparison = audit.get("agent_mcda_comparison") or {}
+            profile = comparison.get("realignment_profile") or {}
+            latency = profile.get("latency_ms") or {}
+            values = latency.get("values") or []
+            measured = latency.get("measured")
+            if measured == 1 and len(values) == 1:
+                value = f"{values[0]:.6f}".rstrip("0").rstrip(".")
+                statement += (
+                    " O primeiro realinhamento posterior foi observado após "
+                    f"{value} ms; esse intervalo descreve somente este episódio."
+                )
+            elif (type(measured) is int and measured > 1
+                  and type(latency.get("minimum")) in (int, float)
+                  and type(latency.get("maximum")) in (int, float)):
+                minimum = f"{latency['minimum']:.6f}".rstrip("0").rstrip(".")
+                maximum = f"{latency['maximum']:.6f}".rstrip("0").rstrip(".")
+                statement += (
+                    f" Para {measured} comparações divergentes, os intervalos "
+                    "até o primeiro alinhamento posterior ficaram entre "
+                    f"{minimum} e {maximum} ms; esses intervalos descrevem "
+                    "somente este episódio."
+                )
+            return statement
         return (
             "A comparação registrada no instante da autoridade indica "
             "alinhamento entre a decisão dos agentes e o MCDA observacional."

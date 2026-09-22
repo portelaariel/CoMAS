@@ -92,6 +92,114 @@ def _exceptional_comparison_groups(
     ))
 
 
+def _temporal_realignment_profile(
+    comparisons: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Measure recorded returns to alignment without claiming convergence."""
+    comparisons_by_domain: Dict[str, List[Dict[str, Any]]] = {}
+    for comparison in comparisons:
+        domain = comparison.get("domain")
+        if isinstance(domain, str) and domain:
+            comparisons_by_domain.setdefault(domain, []).append(comparison)
+
+    observations: List[Dict[str, Any]] = []
+    for domain in sorted(comparisons_by_domain):
+        records = sorted(
+            comparisons_by_domain[domain],
+            key=lambda item: (
+                item.get("captured_ns")
+                if type(item.get("captured_ns")) is int else -1
+            ),
+        )
+        for divergence in records:
+            if _comparison_outcome(divergence) != "DIVERGENT":
+                continue
+            divergent_ns = divergence.get("captured_ns")
+            realignment = None
+            if type(divergent_ns) is int:
+                realignment = next((
+                    candidate for candidate in records
+                    if type(candidate.get("captured_ns")) is int
+                    and candidate["captured_ns"] > divergent_ns
+                    and _comparison_outcome(candidate) == "ALIGNED"
+                ), None)
+            observation: Dict[str, Any] = {
+                "domain": domain,
+                "divergence_event_id": divergence.get("source_event_id"),
+                "divergence_captured_ns": divergent_ns,
+                "divergence_agent_window_ids": list(
+                    divergence.get("agent_window_ids") or []
+                ),
+                "divergence_mcda_decision": divergence.get("mcda_decision"),
+                "divergence_mcda_score": divergence.get("mcda_score"),
+                "divergence_mcda_window_ids": list(
+                    divergence.get("mcda_window_ids") or []
+                ),
+                "realigned": realignment is not None,
+            }
+            if realignment is None:
+                observation["unresolved_reason"] = (
+                    "divergence_timestamp_unavailable"
+                    if type(divergent_ns) is not int
+                    else "no_later_aligned_comparison_in_episode"
+                )
+            else:
+                realigned_ns = realignment["captured_ns"]
+                observation.update({
+                    "realignment_event_id": realignment.get(
+                        "source_event_id"
+                    ),
+                    "realignment_captured_ns": realigned_ns,
+                    "realignment_agent_window_ids": list(
+                        realignment.get("agent_window_ids") or []
+                    ),
+                    "realignment_mcda_decision": realignment.get(
+                        "mcda_decision"
+                    ),
+                    "realignment_mcda_score": realignment.get("mcda_score"),
+                    "realignment_mcda_window_ids": list(
+                        realignment.get("mcda_window_ids") or []
+                    ),
+                    "observed_realignment_ms": round(
+                        (realigned_ns - divergent_ns) / 1_000_000, 6
+                    ),
+                })
+                divergent_score = divergence.get("mcda_score")
+                realigned_score = realignment.get("mcda_score")
+                if (type(divergent_score) in (int, float)
+                        and type(realigned_score) in (int, float)):
+                    observation["mcda_score_delta"] = round(
+                        realigned_score - divergent_score, 6
+                    )
+            observations.append(observation)
+
+    latencies = [
+        item["observed_realignment_ms"] for item in observations
+        if type(item.get("observed_realignment_ms")) in (int, float)
+    ]
+    realigned = sum(item["realigned"] is True for item in observations)
+    return {
+        "policy": "first_later_aligned_comparison_same_domain_same_episode",
+        "interpretation": (
+            "recorded authority-comparison interval; not a convergence guarantee"
+        ),
+        "divergent_comparisons": len(observations),
+        "realigned_comparisons": realigned,
+        "unresolved_comparisons": len(observations) - realigned,
+        "observations": observations,
+        "latency_ms": {
+            "measured": len(latencies),
+            "values": latencies,
+            "minimum": min(latencies) if latencies else None,
+            "mean": (
+                round(sum(latencies) / len(latencies), 6)
+                if latencies else None
+            ),
+            "maximum": max(latencies) if latencies else None,
+        },
+    }
+
+
 def _execution_facts(execution: Dict[str, Any], layer: str) -> Dict[str, Any]:
     """Keep the reported flag distinct from a legacy MCDA simulated attempt.
 
@@ -182,6 +290,7 @@ def normalize_event(
         mcda = _mapping(comparison.get("mcda"))
         mcda_config = _mapping(audit.get("mcda_runtime_config"))
         record["agent_mcda_comparison"] = {
+            "source_event_id": event.get("event_id"),
             "available": comparison.get("available")
             if type(comparison.get("available")) is bool else None,
             "matches": comparison.get("matches")
@@ -493,6 +602,9 @@ def normalize_episode(
             ),
             "domains": comparisons,
             "exceptional_groups": _exceptional_comparison_groups(
+                comparison_records
+            ),
+            "realignment_profile": _temporal_realignment_profile(
                 comparison_records
             ),
         },

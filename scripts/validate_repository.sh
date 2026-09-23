@@ -30,8 +30,10 @@ required_files=(
   agent_authority.py
   collaborative_decision.py
   offline_model.py
+  qos_holt.py
   qos_telemetry.py
   sla_risk.py
+  train_qos_holt_model.py
   train_offline_model.py
   prepare_cicddos2019.py
   evaluate_offline_model.py

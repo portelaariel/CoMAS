@@ -924,6 +924,28 @@ Sem uma coluna independente de ground truth, o treinador considera os dados
 normais. A coluna `is_anomaly` foi produzida pelo próprio detector e não é
 verdade de referência sem revisão ou outra fonte de rótulos.
 
+### Calibrar previsão multi-horizonte de SLA
+
+O pipeline preditivo de SLA é separado do detector DDoS. A coleta de contadores
+de porta produz `port_utilization.csv`; um manifesto atribui séries completas ou
+intervalos temporais explicitamente a treino, calibração e teste. O comando
+abaixo ajusta Holt separadamente para 4, 8 e 12 segundos, calibra um intervalo
+conformal por horizonte e avalia somente na partição de teste:
+
+```bash
+python3 train_qos_holt_model.py qos-holt-manifest.json \
+  --output models/qos-utilization-holt.json \
+  --report models/qos-utilization-holt-evaluation.json
+```
+
+O manifesto usa o schema `comas-qos-holt-training/1`. O escopo
+`pilot_single_run_temporal_split` serve apenas para validar a mecânica; uma
+avaliação destinada a sustentar generalização deve usar
+`independent_run_holdout`, com execuções completas e independentes reservadas
+para calibração e teste. As séries dos dois lados de um link não contam como
+repetições independentes. Consulte `PREDICTIVE_SLA.md` para o contrato e as
+etapas de segurança.
+
 ## Experimentos avançados
 
 ### Modos do runner genérico

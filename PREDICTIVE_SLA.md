@@ -42,6 +42,36 @@ leave rates and utilization empty, so offline training cannot silently treat a
 reset or collection gap as low utilization. The feature is disabled by
 default and has no ETCD, agent, LLM or actuation path.
 
+## Phase 3: horizon-specific Holt calibration
+
+`qos_holt.py` and `train_qos_holt_model.py` implement the offline forecasting
+stage. The trainer fits an independent Holt parameter pair for every requested
+horizon, uses a separate calibration partition to obtain a finite-sample
+split-conformal interval from absolute residuals, and reports accuracy and
+interval coverage on a third held-out test partition. No test observation is
+used to choose Holt parameters or interval radii.
+
+The input manifest assigns each series segment explicitly to `train`,
+`calibration`, or `test`. It also names the controller, port, time bounds and
+source CSV. The loader rejects overlapping temporal partitions of the same
+series, splits at invalid observations or collection gaps, and records source
+SHA-256 hashes in the read-only model artifact. The runtime
+`MultiHorizonHoltForecaster` produces the exact `horizon_steps`,
+`predicted_value`, `lower_bound`, and `upper_bound` contract consumed by
+`evaluate_sla_forecast`.
+
+Two validation scopes are deliberately distinct:
+
+- `pilot_single_run_temporal_split` validates mechanics but is never promotion
+  evidence because all partitions originate from one experiment;
+- `independent_run_holdout` reserves complete experiment runs for calibration
+  and testing and is the required scope for a generalization claim.
+
+For the two-domain testbed, ports `2:4` and `3:3` are the two observations of
+the inter-domain link. They must remain separate time series, even though they
+share one logical link subject. Multiple ports carrying the same flow are not
+independent experimental repetitions.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:
@@ -61,20 +91,17 @@ the experiment.
 
 ## Required next phases
 
-1. Calibrate and evaluate Holt separately at 2, 4 and 6 steps. Each horizon
-   must have held-out error metrics and its own residual interval. The current
-   one-step DDoS residual scale must not be reused as multi-horizon uncertainty.
-2. Connect the calibrated forecasts to `evaluate_sla_forecast` and expose
+1. Connect the calibrated forecasts to `evaluate_sla_forecast` and expose
    shadow evaluations through a read-only endpoint and experiment timeline.
-3. Publish only active, non-expired `PREDICTED_SLA_RISK` evidence to a separate
+2. Publish only active, non-expired `PREDICTED_SLA_RISK` evidence to a separate
    ETCD prefix. Keep it out of the current DDoS proposal keys.
-4. Add a predictive CoMAS protocol with typed proposals such as `PREVENT`,
+3. Add a predictive CoMAS protocol with typed proposals such as `PREVENT`,
    `OBSERVE`, `VETO` and `ABSTAIN`. Missing, stale, model-mismatched or
    topology-incompatible evidence must never be sent to an LLM.
-5. Run the LLM only as a bounded advisor for valid agent disagreement. Its
+4. Run the LLM only as a bounded advisor for valid agent disagreement. Its
    output must pass a deterministic schema and authority gate and must never
    invoke an actuator directly.
-6. Validate in shadow, authority-dry-run and finally a canary with a reversible
+5. Validate in shadow, authority-dry-run and finally a canary with a reversible
    policy, cooldown, idempotent claim, TTL and rollback evidence.
 
 ## Evaluation criteria

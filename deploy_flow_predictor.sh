@@ -37,12 +37,40 @@ if [[ "$DRY_RUN" != "true" && "$DRY_RUN" != "false" ]]; then
 fi
 for value in "$PREDICTOR_OFFLINE_MODEL_REQUIRED" "$PREDICTOR_ONLINE_MODEL_ADAPTATION" \
   "$PREDICTOR_COLLABORATION_ENABLED" "$PREDICTOR_AGENTIC_ENABLED" \
-  "$PREDICTOR_AGENTIC_SHADOW" "$PREDICTOR_AGENTIC_LIVE_ACTUATION"; do
+  "$PREDICTOR_AGENTIC_SHADOW" "$PREDICTOR_AGENTIC_LIVE_ACTUATION" \
+  "$PREDICTOR_QOS_TELEMETRY_ENABLED"; do
   if [[ "$value" != "true" && "$value" != "false" ]]; then
     echo "predictor boolean settings must be true or false" >&2
     exit 2
   fi
 done
+if [[ "$PREDICTOR_QOS_TELEMETRY_ENABLED" == "true" ]]; then
+  if ! python3 - "$PREDICTOR_QOS_PORT_CAPACITIES_JSON" <<'PY'
+import json
+import math
+import sys
+
+try:
+    values = json.loads(sys.argv[1])
+except (TypeError, ValueError) as exc:
+    raise SystemExit(f"invalid PREDICTOR_QOS_PORT_CAPACITIES_JSON: {exc}")
+if not isinstance(values, dict) or not values:
+    raise SystemExit("QoS telemetry requires explicit dpid:port capacities")
+for key, value in values.items():
+    parts = key.split(":") if isinstance(key, str) else []
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise SystemExit(f"invalid QoS capacity key: {key!r}")
+    try:
+        capacity = float(value)
+    except (TypeError, ValueError):
+        raise SystemExit(f"invalid QoS capacity for {key}")
+    if not math.isfinite(capacity) or capacity <= 0:
+        raise SystemExit(f"QoS capacity must be positive for {key}")
+PY
+  then
+    exit 2
+  fi
+fi
 if ! [[ "$PREDICTOR_FLOW_IDLE_RESET_SAMPLES" =~ ^[1-9][0-9]*$ ]]; then
   echo "PREDICTOR_FLOW_IDLE_RESET_SAMPLES must be a positive integer" >&2
   exit 2
@@ -215,21 +243,31 @@ for ((i=0; i<C; i++)); do
 
   # Diretório do host para o dataset de predição (1 CSV por fluxo)
   HIST_DIR="$HISTORY_ROOT/prediction_history_domain${i}"
-  mkdir -p "$HIST_DIR"
+  QOS_DIR="$HISTORY_ROOT/qos_history_domain${i}"
+  mkdir -p "$HIST_DIR" "$QOS_DIR"
 
   log "Iniciando flow-predictor-$i em $PRED_IP:$PRED_HTTP_PORT (rede: $NET, dry_run=$DRY_RUN)"
   log "  Dataset em: $HIST_DIR"
+  if [[ "$PREDICTOR_QOS_TELEMETRY_ENABLED" == "true" ]]; then
+    log "  Dataset QoS em: $QOS_DIR"
+  fi
   log "  Detecção: $MODEL_DESCRIPTION"
   log "  Colaboração: $PREDICTOR_COLLABORATION_ENABLED (quórum=$PREDICTOR_COLLAB_MIN_DOMAINS/$COLLAB_EXPECTED_DOMAINS)"
   log "  Agente: $PREDICTOR_AGENTIC_ENABLED (modo=$PREDICTOR_AGENTIC_MODE, votos=$PREDICTOR_AGENT_REQUIRED_VOTES)"
   CONTAINER="flow-predictor-$i"
   sudo docker create --name "$CONTAINER" --network "$NET" --ip "$PRED_IP" \
     -v "$HIST_DIR:/app/prediction_history" \
+    -v "$QOS_DIR:/app/qos_history" \
     "${MODEL_DOCKER_ARGS[@]}" \
     -e EXPORT_ENABLED="$PREDICTOR_EXPORT_ENABLED" \
     -e EXPORT_DIR="/app/prediction_history" \
     -e EXPORT_PREFIXES="$PREDICTOR_EXPORT_PREFIXES" \
     -e EXPORT_FLUSH_EVERY="$PREDICTOR_EXPORT_FLUSH_EVERY" \
+    -e QOS_TELEMETRY_ENABLED="$PREDICTOR_QOS_TELEMETRY_ENABLED" \
+    -e QOS_PORT_CAPACITIES_JSON="$PREDICTOR_QOS_PORT_CAPACITIES_JSON" \
+    -e QOS_DATASET_DIR="/app/qos_history" \
+    -e QOS_DATASET_FLUSH_EVERY="$PREDICTOR_QOS_DATASET_FLUSH_EVERY" \
+    -e QOS_MAX_GAP_FACTOR="$PREDICTOR_QOS_MAX_GAP_FACTOR" \
     -e RYU_BASE_URL="http://${CTRL_IP}:${CTRL_API_PORT}" \
     -e FLOWBLOCKER_URL="http://${FB_IP}:${FB_HTTP_PORT}" \
     -e CONTROLLER_ID="$CTRL_IP" \

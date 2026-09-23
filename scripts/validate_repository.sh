@@ -30,6 +30,8 @@ required_files=(
   agent_authority.py
   collaborative_decision.py
   offline_model.py
+  qos_telemetry.py
+  sla_risk.py
   train_offline_model.py
   prepare_cicddos2019.py
   evaluate_offline_model.py
@@ -91,6 +93,8 @@ source config/runtime.env
 [[ "$PREDICTOR_AGENT_PROPOSAL_THRESHOLD" == "0.65" ]]
 [[ "$PREDICTOR_AGENT_CLAIM_TTL_S" == "60" ]]
 [[ "$PREDICTOR_AGENTIC_LIVE_ACTUATION" == "false" ]]
+[[ "$PREDICTOR_QOS_TELEMETRY_ENABLED" == "false" ]]
+[[ "$PREDICTOR_QOS_PORT_CAPACITIES_JSON" == "{}" ]]
 
 override_config="$(ETCD_SUBNET=250 ETCD_NODES=2 bash -c '
   source config/runtime.env
@@ -113,6 +117,9 @@ expect_invalid_input bash deploy_flow_predictor.sh 2 invalid
 expect_invalid_input env PREDICTOR_COLLABORATION_ENABLED=true \
   PREDICTOR_COLLAB_MIN_DOMAINS=3 bash deploy_flow_predictor.sh 2 true
 expect_invalid_input env PREDICTOR_FLOW_IDLE_RESET_SAMPLES=0 \
+  bash deploy_flow_predictor.sh 2 true
+expect_invalid_input env PREDICTOR_QOS_TELEMETRY_ENABLED=true \
+  PREDICTOR_QOS_PORT_CAPACITIES_JSON='{}' \
   bash deploy_flow_predictor.sh 2 true
 expect_invalid_input env PREDICTOR_AGENTIC_ENABLED=true \
   PREDICTOR_COLLABORATION_ENABLED=false bash deploy_flow_predictor.sh 2 true

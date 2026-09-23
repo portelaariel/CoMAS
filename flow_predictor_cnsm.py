@@ -60,6 +60,13 @@ ENV (mesmo padrão dos demais serviços):
   EXPORT_DIR            prediction_history
   EXPORT_PREFIXES       flow:      # csv; use "flow:,port:" p/ incluir portas
   EXPORT_FLUSH_EVERY    10         # flush a cada N linhas por série
+
+  # Dataset QoS para previsão de risco de SLA (somente observação):
+  QOS_TELEMETRY_ENABLED false
+  QOS_PORT_CAPACITIES_JSON '{}'    # capacidade direcional: {"dpid:port": bps}
+  QOS_DATASET_DIR       qos_history
+  QOS_DATASET_FLUSH_EVERY 10
+  QOS_MAX_GAP_FACTOR    2.5        # lacuna > polling * fator é marcada inválida
 """
 
 import os
@@ -96,6 +103,11 @@ from offline_model import (
     inverse_transform_value,
     load_offline_model,
     transform_value,
+)
+from qos_telemetry import (
+    PortCapacityRegistry,
+    QosDatasetExporter,
+    QosTelemetryManager,
 )
 
 # ---------------- Configuração via ENV ----------------
@@ -227,6 +239,19 @@ EXPORT_DIR         = os.environ.get("EXPORT_DIR", "prediction_history")
 EXPORT_PREFIXES    = tuple(p.strip() for p in
                            os.environ.get("EXPORT_PREFIXES", "flow:").split(",") if p.strip())
 EXPORT_FLUSH_EVERY = int(os.environ.get("EXPORT_FLUSH_EVERY", "10"))  # flush a cada N linhas/série
+
+# --- Dataset de utilização de portas para calibração SLA (opt-in) ---
+QOS_TELEMETRY_ENABLED = (
+    os.environ.get("QOS_TELEMETRY_ENABLED", "false").lower() == "true"
+)
+QOS_PORT_CAPACITIES_JSON = os.environ.get("QOS_PORT_CAPACITIES_JSON", "{}").strip()
+QOS_DATASET_DIR = os.environ.get("QOS_DATASET_DIR", "qos_history")
+QOS_DATASET_FLUSH_EVERY = int(os.environ.get("QOS_DATASET_FLUSH_EVERY", "10"))
+QOS_MAX_GAP_FACTOR = float(os.environ.get("QOS_MAX_GAP_FACTOR", "2.5"))
+if (not math.isfinite(QOS_MAX_GAP_FACTOR) or QOS_MAX_GAP_FACTOR <= 1.0):
+    raise ValueError("QOS_MAX_GAP_FACTOR deve ser finito e maior que 1")
+if QOS_DATASET_FLUSH_EVERY < 1:
+    raise ValueError("QOS_DATASET_FLUSH_EVERY deve ser positivo")
 
 # ---------------- Logging (padrão [METRICS] do projeto) ----------------
 logging.basicConfig(level=logging.INFO,
@@ -578,6 +603,21 @@ if _exporter:
     atexit.register(_exporter.close)
 
 
+_qos_telemetry: Optional[QosTelemetryManager] = None
+if QOS_TELEMETRY_ENABLED:
+    _qos_capacities = PortCapacityRegistry.from_json(QOS_PORT_CAPACITIES_JSON)
+    _qos_telemetry = QosTelemetryManager(
+        cid=CONTROLLER_ID,
+        capacities=_qos_capacities,
+        max_gap_s=POLL_INTERVAL_S * QOS_MAX_GAP_FACTOR,
+        exporter=QosDatasetExporter(
+            QOS_DATASET_DIR,
+            flush_every=QOS_DATASET_FLUSH_EVERY,
+        ),
+    )
+    atexit.register(_qos_telemetry.close)
+
+
 # =====================================================================
 # 3) SÉRIE TEMPORAL — encapsula contadores, taxa, preditor e detector
 # =====================================================================
@@ -789,7 +829,8 @@ class Collector:
 
     def _collect_once(self):
         dpids = self._get("/stats/switches") or []
-        ts = time.time()
+        collection_ns = time.time_ns()
+        ts = collection_ns / 1e9
 
         for dpid in dpids:
             # ---- Portas (visão agregada por enlace) ----
@@ -798,10 +839,29 @@ class Collector:
                 port_no = p.get("port_no")
                 if port_no in (None, "LOCAL", 65534):
                     continue
+                port_no = int(port_no)
                 key = f"port:{dpid}:{port_no}"
                 meta = {"type": "port", "dpid": dpid, "port_no": port_no}
-                total = int(p.get("rx_bytes", 0)) + int(p.get("tx_bytes", 0))
+                rx_bytes = int(p.get("rx_bytes", 0))
+                tx_bytes = int(p.get("tx_bytes", 0))
+                total = rx_bytes + tx_bytes
                 self.engine.ingest(key, meta, total, ts)
+                if _qos_telemetry is not None:
+                    try:
+                        _qos_telemetry.ingest(
+                            dpid=dpid,
+                            port_no=port_no,
+                            rx_bytes=rx_bytes,
+                            tx_bytes=tx_bytes,
+                            ts_ns=collection_ns,
+                        )
+                    except Exception as exc:
+                        # O dataset preditivo é observacional e nunca pode
+                        # interromper o detector/mitigador DDoS existente.
+                        logger.error(
+                            "Falha isolada na telemetria QoS para %s: %s",
+                            key, exc,
+                        )
 
             # ---- Fluxos IPv4 (visão fina src->dst; base da mitigação) ----
             fstats = self._get(f"/stats/flow/{dpid}") or {}
@@ -2381,6 +2441,11 @@ def status():
                 "agentic_mode": AGENTIC_MODE,
                 "agentic_active": engine.agentic is not None,
                 "agentic_live_actuation_opt_in": AGENTIC_LIVE_ACTUATION,
+                "qos_telemetry_enabled": QOS_TELEMETRY_ENABLED,
+                "qos_configured_ports": (
+                    0 if _qos_telemetry is None
+                    else _qos_telemetry.status()["configured_ports"]
+                ),
             },
         }), 200
 
@@ -2454,6 +2519,19 @@ def export_status():
         return jsonify({"enabled": False, "directory": EXPORT_DIR,
                         "files": 0, "records_written": 0}), 200
     return jsonify(_exporter.status()), 200
+
+
+@app.route("/predictor/qos", methods=["GET"])
+def qos_status():
+    """Estado somente leitura da coleta do dataset de utilização."""
+    if _qos_telemetry is None:
+        return jsonify({
+            "enabled": False,
+            "directory": QOS_DATASET_DIR,
+            "configured_ports": 0,
+            "latest": [],
+        }), 200
+    return jsonify(_qos_telemetry.status()), 200
 
 
 @app.route("/predictor/feedback", methods=["POST"])

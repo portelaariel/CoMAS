@@ -1103,6 +1103,7 @@ porta `6060` e o domínio 1 usa `6061`.
 | GET | `/predictor/collaboration` | evidências, decisões MCDA e claims |
 | GET | `/predictor/agent` | propostas, consenso e autoridade dos agentes |
 | GET | `/predictor/export/status` | estado da exportação CSV |
+| GET | `/predictor/qos` | coleta QoS, portas configuradas e últimas amostras |
 | POST | `/predictor/feedback` | ajuste temporário por `anomaly_id` |
 | POST | `/predictor/config` | parâmetros permitidos durante a execução |
 
@@ -1185,6 +1186,9 @@ Variáveis principais:
 | `PREDICTOR_OFFLINE_MODEL_REQUIRED` | `false` | impede fallback se o modelo faltar |
 | `PREDICTOR_ONLINE_MODEL_ADAPTATION` | `false` | permite alterar a distribuição residual online |
 | `PREDICTOR_EXPORT_ENABLED` | `true` | grava histórico CSV por fluxo |
+| `PREDICTOR_QOS_TELEMETRY_ENABLED` | `false` | grava dataset de utilização de portas para previsão de SLA |
+| `PREDICTOR_QOS_PORT_CAPACITIES_JSON` | `{}` | capacidades direcionais em bps por `dpid:port` |
+| `PREDICTOR_QOS_MAX_GAP_FACTOR` | `2.5` | marca lacunas maiores que polling multiplicado pelo fator |
 | `PREDICTOR_DRY_RUN` | `true` | impede atuação real |
 | `PREDICTOR_AUTO_MITIGATE` | `true` | permite solicitar mitigação quando autorizada |
 | `PREDICTOR_EVENT_COOLDOWN_S` | `60` | agrupa eventos repetidos |

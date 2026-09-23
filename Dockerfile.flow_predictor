@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 COPY flow_predictor_cnsm.py offline_model.py collaborative_decision.py \
-    agent_protocol.py domain_agent.py agent_authority.py /app/
+    agent_protocol.py domain_agent.py agent_authority.py qos_telemetry.py /app/
 
 # Porta HTTP padrão do serviço (sobrescrita via -e PORT no run)
 EXPOSE 6060

@@ -27,6 +27,21 @@ observation window, every forecast and interval, first possible and likely
 crossing times, confirming horizons, model identity, creation time and expiry.
 It performs no ETCD write, LLM call or network actuation.
 
+## Phase 2: port-utilization dataset
+
+`qos_telemetry.py` implements opt-in collection from OpenFlow port counters.
+Every monitored `dpid:port` requires an explicit directional capacity in bits
+per second. For a full-duplex link, `utilization_ratio` is calculated as
+`max(rx_bps, tx_bps) / capacity_bps`; the directional and aggregate rates are
+also retained for audit.
+
+The append-only `port_utilization.csv` records both valid observations and
+explicit quality markers: `PRIMING`, `COUNTER_RESET`, `MISSING_INTERVAL` and
+`NON_MONOTONIC_TIMESTAMP`. Invalid observations retain their raw counters but
+leave rates and utilization empty, so offline training cannot silently treat a
+reset or collection gap as low utilization. The feature is disabled by
+default and has no ETCD, agent, LLM or actuation path.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:
@@ -46,22 +61,20 @@ the experiment.
 
 ## Required next phases
 
-1. Build a timestamped port-utilization dataset with the configured capacity,
-   missing-sample markers and reset handling.
-2. Calibrate and evaluate Holt separately at 2, 4 and 6 steps. Each horizon
+1. Calibrate and evaluate Holt separately at 2, 4 and 6 steps. Each horizon
    must have held-out error metrics and its own residual interval. The current
    one-step DDoS residual scale must not be reused as multi-horizon uncertainty.
-3. Connect the calibrated forecasts to `evaluate_sla_forecast` and expose
+2. Connect the calibrated forecasts to `evaluate_sla_forecast` and expose
    shadow evaluations through a read-only endpoint and experiment timeline.
-4. Publish only active, non-expired `PREDICTED_SLA_RISK` evidence to a separate
+3. Publish only active, non-expired `PREDICTED_SLA_RISK` evidence to a separate
    ETCD prefix. Keep it out of the current DDoS proposal keys.
-5. Add a predictive CoMAS protocol with typed proposals such as `PREVENT`,
+4. Add a predictive CoMAS protocol with typed proposals such as `PREVENT`,
    `OBSERVE`, `VETO` and `ABSTAIN`. Missing, stale, model-mismatched or
    topology-incompatible evidence must never be sent to an LLM.
-6. Run the LLM only as a bounded advisor for valid agent disagreement. Its
+5. Run the LLM only as a bounded advisor for valid agent disagreement. Its
    output must pass a deterministic schema and authority gate and must never
    invoke an actuator directly.
-7. Validate in shadow, authority-dry-run and finally a canary with a reversible
+6. Validate in shadow, authority-dry-run and finally a canary with a reversible
    policy, cooldown, idempotent claim, TTL and rollback evidence.
 
 ## Evaluation criteria

@@ -72,6 +72,7 @@ class SlaRiskBacktestTests(unittest.TestCase):
         )
         self.assertEqual(summary["detected"], 1)
         self.assertEqual(summary["warning_lead_time_s"]["values"], [6.0])
+        self.assertEqual(summary["events"][0]["alert_index"], 0)
 
     def test_interval_changes_watch_but_not_point_candidate(self):
         series = [{
@@ -109,6 +110,14 @@ class SlaRiskBacktestTests(unittest.TestCase):
         self.assertEqual(
             wide["aggregate"]["candidate"]["confusion"],
             narrow["aggregate"]["candidate"]["confusion"],
+        )
+        self.assertIn(
+            "persistent_activation", wide["aggregate"]["crossing_events"]
+        )
+        self.assertEqual(
+            len(wide["series"][0]["candidate_errors"]),
+            wide["aggregate"]["candidate"]["confusion"]["FP"]
+            + wide["aggregate"]["candidate"]["confusion"]["FN"],
         )
 
     def test_report_validates_sources_and_compares_two_artifacts(self):

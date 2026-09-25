@@ -128,6 +128,10 @@ class SlaRiskPersistenceTests(unittest.TestCase):
             (2, 0.60, 0.55, 0.65),
             (4, 0.65, 0.60, 0.70),
         ])
+        self.watch = evaluate(policy, [
+            (2, 0.70, 0.60, 0.82),
+            (4, 0.72, 0.62, 0.84),
+        ])
 
     def test_requires_consecutive_evaluations_to_activate_and_clear(self):
         tracker = SlaRiskPersistence(activation_windows=2, clear_windows=2)
@@ -143,6 +147,20 @@ class SlaRiskPersistenceTests(unittest.TestCase):
         self.assertEqual(first_clear["status"], "ACTIVE_RISK")
         self.assertEqual(second_clear["status"], "CLEARED")
         self.assertTrue(second_clear["transitioned"])
+
+    def test_watch_does_not_keep_an_old_candidate_active_indefinitely(self):
+        tracker = SlaRiskPersistence(activation_windows=2, clear_windows=2)
+        tracker.update(self.risk)
+        tracker.update(self.risk)
+
+        first_watch = tracker.update(self.watch)
+        second_watch = tracker.update(self.watch)
+
+        self.assertTrue(first_watch["active"])
+        self.assertEqual(first_watch["clear_streak"], 1)
+        self.assertFalse(second_watch["active"])
+        self.assertTrue(second_watch["transitioned"])
+        self.assertEqual(second_watch["status"], "WATCH")
 
 
 if __name__ == "__main__":

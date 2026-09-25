@@ -270,7 +270,12 @@ def evaluate_sla_forecast(
 
 
 class SlaRiskPersistence:
-    """Confirma risco em ciclos sucessivos e evita oscilação na limpeza."""
+    """Confirma candidatos e limpa após ciclos sem um novo candidato.
+
+    ``WATCH`` representa incerteza do intervalo, não uma renovação do risco
+    pontual. Por isso ele interrompe a sequência de ativação e, assim como
+    ``NORMAL``, conta para a limpeza de um risco anteriormente ativo.
+    """
 
     def __init__(self, activation_windows: int = 2, clear_windows: int = 2):
         self.activation_windows = _positive_int(
@@ -306,7 +311,7 @@ class SlaRiskPersistence:
                 state["active"] = True
                 transitioned = True
             status = "ACTIVE_RISK" if state["active"] else "PENDING_RISK"
-        elif decision == "NORMAL":
+        else:
             state["risk_streak"] = 0
             if state["active"]:
                 state["clear_streak"] += 1
@@ -314,16 +319,12 @@ class SlaRiskPersistence:
                     state["active"] = False
                     state["clear_streak"] = 0
                     transitioned = True
-                    status = "CLEARED"
+                    status = "CLEARED" if decision == "NORMAL" else "WATCH"
                 else:
                     status = "ACTIVE_RISK"
             else:
                 state["clear_streak"] = 0
-                status = "NORMAL"
-        else:
-            state["risk_streak"] = 0
-            state["clear_streak"] = 0
-            status = "ACTIVE_RISK" if state["active"] else "WATCH"
+                status = decision
 
         return {
             "status": status,

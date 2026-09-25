@@ -160,6 +160,7 @@ def _warning_summary(
     detected = 0
     ineligible = 0
     latencies: List[float] = []
+    events: List[Dict[str, Any]] = []
     for crossing in crossings:
         eligible = [
             row for row in observations
@@ -167,14 +168,35 @@ def _warning_summary(
         ]
         if not eligible:
             ineligible += 1
+            events.append({
+                "crossing_index": crossing,
+                "eligible": False,
+                "detected": False,
+                "alert_index": None,
+                "warning_lead_time_s": None,
+            })
             continue
         alerts = [row for row in eligible if row[signal]]
         if alerts:
             detected += 1
             earliest = min(alerts, key=lambda row: row["index"])
-            latencies.append(
-                (crossing - earliest["index"]) * sample_interval_s
-            )
+            latency = (crossing - earliest["index"]) * sample_interval_s
+            latencies.append(latency)
+            events.append({
+                "crossing_index": crossing,
+                "eligible": True,
+                "detected": True,
+                "alert_index": earliest["index"],
+                "warning_lead_time_s": latency,
+            })
+        else:
+            events.append({
+                "crossing_index": crossing,
+                "eligible": True,
+                "detected": False,
+                "alert_index": None,
+                "warning_lead_time_s": None,
+            })
     eligible_count = len(crossings) - ineligible
     return {
         "actual_crossings": len(crossings),
@@ -184,6 +206,7 @@ def _warning_summary(
         "missed": eligible_count - detected,
         "detection_rate": _ratio(detected, eligible_count),
         "warning_lead_time_s": _latency_summary(latencies),
+        "events": events,
     }
 
 
@@ -264,6 +287,7 @@ def _empty_accumulator() -> Dict[str, Any]:
             "watch_or_candidate": [],
             "candidate": [],
             "persistent_active": [],
+            "persistent_activation": [],
         },
     }
 
@@ -287,6 +311,7 @@ def _merge_accumulator(target: Dict[str, Any], source: Dict[str, Any]) -> None:
 
 def _aggregate_crossing(blocks: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     values: List[float] = []
+    events: List[Dict[str, Any]] = []
     result = {
         "actual_crossings": 0,
         "eligible_crossings": 0,
@@ -298,10 +323,12 @@ def _aggregate_crossing(blocks: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         for name in result:
             result[name] += int(block[name])
         values.extend(block["warning_lead_time_s"]["values"])
+        events.extend(block.get("events", []))
     result["detection_rate"] = _ratio(
         result["detected"], result["eligible_crossings"]
     )
     result["warning_lead_time_s"] = _latency_summary(values)
+    result["events"] = events
     return result
 
 
@@ -375,6 +402,7 @@ def _backtest_series(
     maximum_horizon = max(policy.horizons_steps)
     accumulator = _empty_accumulator()
     observations: List[Dict[str, Any]] = []
+    candidate_errors: List[Dict[str, Any]] = []
     point_signature: Dict[Tuple[str, int], Tuple[float, ...]] = {}
     candidate_signature: Dict[Tuple[str, int], bool] = {}
 
@@ -409,6 +437,9 @@ def _backtest_series(
         candidate = decision == SLA_RISK_EVENT_TYPE
         any_signal = decision != "NORMAL"
         persistent_active = bool(persistence_result["active"])
+        persistent_activation = bool(
+            persistence_result["transitioned"] and persistent_active
+        )
 
         accumulator["evaluated_windows"] += 1
         accumulator[
@@ -433,11 +464,34 @@ def _backtest_series(
             else:
                 accumulator["clear_transitions"] += 1
 
+        if candidate != actual["positive"]:
+            candidate_errors.append({
+                "classification": "FP" if candidate else "FN",
+                "window_id": index + 1,
+                "observation_index": index,
+                "observed_value": observed,
+                "actual_horizons": [
+                    {
+                        "horizon_steps": step,
+                        "horizon_s": step * model.sample_interval_s,
+                        "actual_value": value,
+                        "breach": breach,
+                    }
+                    for step, value, breach in zip(
+                        policy.horizons_steps,
+                        actual["values"],
+                        actual["breaches"],
+                    )
+                ],
+                "forecast_horizons": evaluation["forecast"]["horizons"],
+            })
+
         observations.append({
             "index": index,
             "watch_or_candidate": any_signal,
             "candidate": candidate,
             "persistent_active": persistent_active,
+            "persistent_activation": persistent_activation,
         })
         key = (series["series_id"], index)
         point_signature[key] = tuple(
@@ -446,7 +500,7 @@ def _backtest_series(
         candidate_signature[key] = candidate
 
     for signal in accumulator["crossing"]:
-        accumulator["crossing"][signal].append(_warning_summary(
+        summary = _warning_summary(
             sequence=values,
             observations=observations,
             comparator=policy.comparator,
@@ -454,13 +508,21 @@ def _backtest_series(
             max_horizon_steps=maximum_horizon,
             sample_interval_s=model.sample_interval_s,
             signal=signal,
-        ))
+        )
+        for event in summary["events"]:
+            event.update({
+                "series_id": series["series_id"],
+                "cid": series["cid"],
+                "port_id": series["port_id"],
+            })
+        accumulator["crossing"][signal].append(summary)
 
     report = {
         "series_id": series["series_id"],
         "cid": series["cid"],
         "port_id": series["port_id"],
         "samples": len(values),
+        "candidate_errors": candidate_errors,
         **_render_accumulator(accumulator),
     }
     return report, point_signature, candidate_signature

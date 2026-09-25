@@ -18,8 +18,10 @@ classifies each horizon as:
 
 A `PREDICTED_SLA_RISK` candidate requires `LIKELY` crossings in consecutive
 horizons. `SlaRiskPersistence` then requires candidates in consecutive
-evaluation windows before making the risk active and consecutive clear windows
-before clearing it. This separates forecast persistence from temporal
+evaluation windows before making the risk active and consecutive windows
+without a new candidate before clearing it. `WATCH` is interval uncertainty,
+not a renewal of the point-forecast candidate, so it participates in clearing
+an old active state. This separates forecast persistence from temporal
 persistence and prevents a single forecast point from triggering policy.
 
 The event records the subject, metric, SLA comparator and threshold,
@@ -80,7 +82,10 @@ ground truth uses the same horizon rule as the policy: the observed utilization
 must cross the SLA in the required number of consecutive forecast horizons.
 The report separates point-forecast candidates, interval-only `WATCH` signals
 and the persistent active state. It also measures warning lead time against
-actual transitions into SLA violation.
+actual transitions into SLA violation. Persistent-state coverage and fresh
+activation before a crossing are reported separately, so an old active state
+cannot be presented as a new warning. Candidate FP/FN windows retain their
+observed value, future ground truth and forecast horizons for diagnosis.
 
 Multiple interval coverages can be compared without conflating them with the
 point forecast. When Holt parameters are identical, interval coverage can

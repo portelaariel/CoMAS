@@ -120,6 +120,7 @@ run_profile() {
   profile_start_ns="$(date +%s%N)"
   for rate_mbit in "${rates[@]}"; do
     stage=$((stage + 1))
+    echo "profile=$split stage=$stage/${#rates[@]} rate=${rate_mbit}M"
     change_rate "$rate_mbit"
     stage_start_ns="$(date +%s%N)"
     sleep "$STAGE_DURATION_S"

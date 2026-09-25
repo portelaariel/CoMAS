@@ -72,6 +72,38 @@ the inter-domain link. They must remain separate time series, even though they
 share one logical link subject. Multiple ports carrying the same flow are not
 independent experimental repetitions.
 
+## Phase 4: offline SLA-risk backtest
+
+`backtest_sla_risk.py` replays only the held-out test partition through the
+read-only forecaster, `evaluate_sla_forecast` and `SlaRiskPersistence`. Its
+ground truth uses the same horizon rule as the policy: the observed utilization
+must cross the SLA in the required number of consecutive forecast horizons.
+The report separates point-forecast candidates, interval-only `WATCH` signals
+and the persistent active state. It also measures warning lead time against
+actual transitions into SLA violation.
+
+Multiple interval coverages can be compared without conflating them with the
+point forecast. When Holt parameters are identical, interval coverage can
+change `WATCH`, `HIGH_CONFIDENCE` and persistent clearing, but it cannot change
+the raw `PREDICTED_SLA_RISK` candidate, which depends on point forecasts.
+
+Example comparing two read-only artifacts:
+
+```bash
+python3 backtest_sla_risk.py qos-holt-manifest.json \
+  --model coverage95=models/qos-holt-coverage95.json \
+  --model coverage90=models/qos-holt-coverage90.json \
+  --threshold 0.80 \
+  --required-consecutive-horizons 2 \
+  --activation-windows 2 \
+  --clear-windows 2 \
+  --output models/qos-sla-risk-backtest.json
+```
+
+Window-level classifications in this report are temporally dependent. They
+must not be presented as independent experimental repetitions, and a
+single-run temporal split remains ineligible for promotion.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

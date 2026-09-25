@@ -30,6 +30,7 @@ required_files=(
   agent_authority.py
   collaborative_decision.py
   offline_model.py
+  backtest_sla_risk.py
   qos_holt.py
   qos_telemetry.py
   sla_risk.py

@@ -938,6 +938,19 @@ python3 train_qos_holt_model.py qos-holt-manifest.json \
   --report models/qos-utilization-holt-evaluation.json
 ```
 
+Antes de integrar o artefato ao runtime, reproduza a partição de teste pelo
+contrato completo de risco. O backtest separa o candidato baseado na previsão
+pontual, o `WATCH` produzido pelo intervalo e o estado confirmado por
+persistência:
+
+```bash
+python3 backtest_sla_risk.py qos-holt-manifest.json \
+  --model coverage95=models/qos-utilization-holt-coverage95.json \
+  --model coverage90=models/qos-utilization-holt-coverage90.json \
+  --threshold 0.80 \
+  --output models/qos-sla-risk-backtest.json
+```
+
 O manifesto usa o schema `comas-qos-holt-training/1`. O escopo
 `pilot_single_run_temporal_split` serve apenas para validar a mecânica; uma
 avaliação destinada a sustentar generalização deve usar

@@ -183,10 +183,15 @@ python3 scripts/collect_qos_validation_campaign.py \
 
 ### Recovering stopped collectors without modifying the pilot
 
-Do not restart collectors whose writable histories still point to the frozen
-pilot. With an existing protocol, the following helper first checks the original
-CSV hashes, shadow settings, image, networks and mounts without changing Docker
-or files. It requires stopped `flow-predictor-0/1` from the standard deployment:
+Do not restart collectors whose writable histories still point to pilot
+collection directories. These append-only histories are not necessarily the
+immutable CSV copies used for training. With an existing protocol, the helper
+validates the CSV paths and hashes recorded in each frozen model's
+`training.source_series` (for example `frozen/port_utilization_domain0.csv`). It
+separately records the current history hashes for preservation, without requiring
+them to equal training hashes. Shadow settings, image, networks and mounts are
+also checked without changing Docker or files. It requires stopped
+`flow-predictor-0/1` from the standard deployment:
 
 ```bash
 sudo -v
@@ -200,10 +205,12 @@ After `plan=READY`, repeat with `--apply` to create and start
 all environment variables, read-only model mounts, REST ports and network names;
 Docker assigns new container IPs. Both histories use fresh directories under
 the output root. Original containers remain stopped and are not removed or
-renamed. Custom deployments or changed pilot CSVs are refused, not rewritten.
+renamed. Custom deployments or changed training CSVs are refused, not rewritten.
 Before starting either copy, the helper verifies its actual image, environment,
-mounts and network membership. Failures preserve a redacted `recovery.json` and
-attempt to stop only the newly created containers; they are never deleted.
+mounts and network membership. Both training sources and collection histories
+must remain unchanged between planning and startup. Failures preserve a redacted
+`recovery.json` and attempt to stop only the newly created containers; they are
+never deleted.
 
 `START_REQUESTED` confirms only Docker accepted the start request, not that APIs
 or the traffic path are healthy. Restore Mininet and calibration rules separately,

@@ -43,6 +43,35 @@ def docker(*arguments):
     return result.stdout.strip()
 
 
+def training_sources(models, subject, output):
+    """Validate the actual CSV paths recorded in frozen model provenance."""
+    sources = {}
+    for model in models:
+        entries = [entry for entry in model.training.get("source_series", [])
+                   if entry["cid"] == subject["cid"] and entry["port_id"] == subject["port_id"]]
+        if not entries:
+            raise ValueError("modelo congelado não registra as fontes da porta monitorada")
+        for entry in entries:
+            path = Path(entry["csv"])
+            if not path.is_absolute():
+                raise ValueError("fonte de treinamento deve registrar um caminho absoluto")
+            path = path.resolve()
+            if path.is_relative_to(output) or output.is_relative_to(path):
+                raise ValueError("destino novo sobrepõe uma fonte de treinamento")
+            if path not in sources:
+                sources[path] = dict(path=str(path), sha256=digest_file(path), role="training_source")
+            if sources[path]["sha256"] != entry["csv_sha256"]:
+                raise ValueError(f"CSV de treinamento diverge do modelo congelado: {path}")
+    return list(sources.values())
+
+
+def check_protected_sources(plans):
+    for plan in plans:
+        for source in plan["protected_sources"]:
+            if digest_file(Path(source["path"])) != source["sha256"]:
+                raise ValueError(f"arquivo protegido mudou ({source['role']}): {source['path']}")
+
+
 def prepare(protocol_path, output):
     protocol = load_protocol(protocol_path)
     output = output.resolve()
@@ -101,7 +130,8 @@ def prepare(protocol_path, output):
         if binding["HostPort"] != str(6060 + index) or binding.get("HostIp", "") not in ("", "0.0.0.0", "127.0.0.1"):
             raise ValueError("porta REST incompatível")
         publish = f"{binding.get('HostIp') or '0.0.0.0'}:{binding['HostPort']}:{6060 + index}/tcp"
-        mounts, sources = [], []
+        mounts = []
+        sources = training_sources(models, subject, output)
         destinations = set()
         for mount in row["Mounts"]:
             destination = mount["Destination"]
@@ -118,12 +148,10 @@ def prepare(protocol_path, output):
                 if destination == "/app/qos_history":
                     csv_path = source / "port_utilization.csv"
                     checksum = digest_file(csv_path)
-                    for model in models:
-                        hashes = {entry["csv_sha256"] for entry in model.training.get("source_series", [])
-                                  if entry["cid"] == subject["cid"] and entry["port_id"] == subject["port_id"]}
-                        if checksum not in hashes:
-                            raise ValueError("CSV do piloto mudou; preserve-o e investigue antes de recuperar")
-                    sources.append(dict(path=str(csv_path), sha256=checksum))
+                    # Collection histories may have continued growing after a
+                    # separate training snapshot was frozen. Preserve their
+                    # current bytes, but do not mistake them for model sources.
+                    sources.append(dict(path=str(csv_path), sha256=checksum, role="collection_history"))
                 source, readonly = new_source, False
             else:
                 if mount["RW"]:
@@ -145,8 +173,9 @@ def public_plan(plan):
 
 
 def apply(protocol_path, output, protocol, plans):
+    check_protected_sources(plans)
     output.mkdir(parents=True, exist_ok=False)
-    receipt = dict(schema_version="comas-qos-runtime-recovery/1", status="PREPARING",
+    receipt = dict(schema_version="comas-qos-runtime-recovery/2", status="PREPARING",
                    protocol_sha256=protocol["protocol_sha256"],
                    plans=[public_plan(plan) for plan in plans], created_container_ids=[])
     created = receipt["created_container_ids"]
@@ -189,11 +218,9 @@ def apply(protocol_path, output, protocol, plans):
                 raise ValueError("imagem ou variáveis da nova instância diferem do plano")
             if set(row["NetworkSettings"]["Networks"]) != {plan["primary_network"], *plan["additional_networks"]}:
                 raise ValueError("redes da nova instância diferem do plano")
+        check_protected_sources(plans)
         docker("start", *created)
-        for plan in plans:
-            for source in plan["protected_sources"]:
-                if digest_file(Path(source["path"])) != source["sha256"]:
-                    raise ValueError("arquivo protegido mudou durante a recuperação")
+        check_protected_sources(plans)
         load_protocol(protocol_path)  # No evaluator/model mutation is permitted.
         receipt["status"] = "START_REQUESTED"
     except BaseException as exc:
@@ -220,10 +247,10 @@ def main(argv=None):
         protocol, plans = prepare(path, output)
         if args.apply:
             apply(path, output, protocol, plans)
-            print(f"start_requested=2 originals_preserved=2 pilot_hashes_unchanged=true")
+            print("start_requested=2 originals_preserved=2 training_sources_unchanged=true collection_histories_unchanged=true")
             print(f"receipt={output / 'recovery.json'}")
         else:
-            print("plan=READY copies=2 originals_preserved=2 changes=new_names,new_history_mounts,automatic_container_IPs")
+            print("plan=READY copies=2 originals_preserved=2 training_sources=VERIFIED changes=new_names,new_history_mounts,automatic_container_IPs")
         return 0
     except KeyboardInterrupt:
         print("recuperação interrompida; originais preservados", file=sys.stderr)

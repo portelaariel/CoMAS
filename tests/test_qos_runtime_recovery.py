@@ -1,4 +1,5 @@
 import copy
+from dataclasses import replace
 import io
 import json
 import tempfile
@@ -65,6 +66,26 @@ class QosRuntimeRecoveryTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.pilot = self.root / "pilot"
         create_pilot(self.pilot)
+        # Match the real testbed: models reference immutable copies, while
+        # Docker binds the separate append-only collection histories.
+        frozen = self.pilot / "frozen"
+        frozen.mkdir()
+        manifest_path = self.pilot / "qos-holt-manifest-v1.json"
+        manifest = json.loads(manifest_path.read_text())
+        self.training_csvs = []
+        for index, subject in enumerate(validation.SUBJECTS):
+            path = frozen / f"port_utilization_domain{index}.csv"
+            path.write_bytes((self.pilot / f"pilot-{subject['cid']}.csv").read_bytes())
+            self.training_csvs.append(path)
+            for entry in manifest["series"]:
+                if entry["cid"] == subject["cid"]:
+                    entry["csv"] = str(path)
+        manifest_path.write_text(json.dumps(manifest))
+        _, _, metadata = validation.load_manifest(manifest_path)
+        for name in ("model-v1", "model-v1-coverage90"):
+            path = self.pilot / name / "qos-holt-model.json"
+            model = recovery.QosHoltModel.load(path)
+            replace(model, training=metadata, model_id="").save(path)
         self.protocol_path = self.root / "frozen/protocol.json"
         self.protocol = validation.freeze_protocol(self.pilot, self.protocol_path.parent, 1)
         self.output = self.protocol_path.parent / "runtime"
@@ -72,8 +93,8 @@ class QosRuntimeRecoveryTests(unittest.TestCase):
         for index, subject in enumerate(validation.SUBJECTS):
             history = self.pilot / f"qos_history_domain{index}"
             history.mkdir()
-            (history / "port_utilization.csv").write_bytes(
-                (self.pilot / f"pilot-{subject['cid']}.csv").read_bytes())
+            content = self.training_csvs[index].read_bytes()
+            (history / "port_utilization.csv").write_bytes(content + content.splitlines(keepends=True)[-1])
             prediction = self.pilot / f"prediction_history_domain{index}"
             prediction.mkdir()
             env = dict(AUTO_MITIGATE="false", DRY_RUN="true", AGENTIC_MODE="shadow",
@@ -169,12 +190,39 @@ class QosRuntimeRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sobrepõe"):
             recovery.prepare(self.protocol_path, self.protocol_path.parent / "other-runtime")
 
-    def test_changed_pilot_is_rejected(self):
-        source = Path(self.originals["flow-predictor-0"]["Mounts"][0]["Source"]) / "port_utilization.csv"
+    def test_separate_growing_histories_are_not_mistaken_for_training_sources(self):
+        _, plans = recovery.prepare(self.protocol_path, self.output)
+        for index, plan in enumerate(plans):
+            sources = {source["role"]: source for source in plan["protected_sources"]}
+            self.assertEqual(sources["training_source"]["path"], str(self.training_csvs[index].resolve()))
+            self.assertNotEqual(sources["training_source"]["sha256"], sources["collection_history"]["sha256"])
+            self.assertNotEqual(sources["training_source"]["path"], sources["collection_history"]["path"])
+        self.assertFalse(self.output.exists())
+
+    def test_changed_training_csv_is_rejected(self):
+        source = self.training_csvs[0]
         source.write_text(source.read_text() + "modified\n")
-        with self.assertRaisesRegex(ValueError, "CSV do piloto mudou"):
+        with self.assertRaisesRegex(ValueError, "CSV de treinamento diverge"):
             recovery.prepare(self.protocol_path, self.output)
         self.assertFalse(self.output.exists())
+
+    def test_missing_training_csv_is_rejected(self):
+        self.training_csvs[0].rename(self.root / "moved.csv")
+        with self.assertRaises(FileNotFoundError):
+            recovery.prepare(self.protocol_path, self.output)
+        self.assertFalse(self.output.exists())
+
+    def test_both_source_roles_are_rechecked_before_any_creation(self):
+        protocol, plans = recovery.prepare(self.protocol_path, self.output)
+        for source in plans[0]["protected_sources"]:
+            path = Path(source["path"])
+            original = path.read_bytes()
+            path.write_bytes(original + b"modified\n")
+            with self.subTest(role=source["role"]), self.assertRaisesRegex(ValueError, source["role"]):
+                recovery.apply(self.protocol_path, self.output, protocol, plans)
+            self.assertFalse(self.output.exists())
+            self.assertFalse(any(call[0] == "create" for call in self.docker.calls))
+            path.write_bytes(original)
 
     def test_replaced_original_is_not_copied(self):
         protocol, plans = recovery.prepare(self.protocol_path, self.output)

@@ -181,6 +181,36 @@ python3 scripts/collect_qos_validation_campaign.py \
   --protocol "$PROTOCOL_ROOT/protocol.json" --preflight-only
 ```
 
+### Recovering stopped collectors without modifying the pilot
+
+Do not restart collectors whose writable histories still point to the frozen
+pilot. With an existing protocol, the following helper first checks the original
+CSV hashes, shadow settings, image, networks and mounts without changing Docker
+or files. It requires stopped `flow-predictor-0/1` from the standard deployment:
+
+```bash
+sudo -v
+python3 scripts/recover_qos_runtime.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --output "$PWD/experiments/results/qos-prospective-v1/runtime-recovery-v1"
+```
+
+After `plan=READY`, repeat with `--apply` to create and start
+`comas-qos-prospective-0/1`. The helper preserves the original immutable image,
+all environment variables, read-only model mounts, REST ports and network names;
+Docker assigns new container IPs. Both histories use fresh directories under
+the output root. Original containers remain stopped and are not removed or
+renamed. Custom deployments or changed pilot CSVs are refused, not rewritten.
+Before starting either copy, the helper verifies its actual image, environment,
+mounts and network membership. Failures preserve a redacted `recovery.json` and
+attempt to stop only the newly created containers; they are never deleted.
+
+`START_REQUESTED` confirms only Docker accepted the start request, not that APIs
+or the traffic path are healthy. Restore Mininet and calibration rules separately,
+then rerun the collection preflight. Do not freeze again or modify the frozen
+forecast/evaluation code. This recovery helper does not change protocol settings
+or fit models and is not part of the frozen forecast/evaluation code set.
+
 After `preflight=READY`, run in a persistent terminal. Keep the repository
 version unchanged between freezing, collecting, and evaluating. Collection
 requires an explicit laboratory traffic opt-in:

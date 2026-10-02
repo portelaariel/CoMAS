@@ -33,6 +33,7 @@ required_files=(
   backtest_sla_risk.py
   predictive_sla_validation.py
   scripts/collect_qos_validation_campaign.py
+  scripts/recover_qos_runtime.py
   qos_holt.py
   qos_telemetry.py
   sla_risk.py

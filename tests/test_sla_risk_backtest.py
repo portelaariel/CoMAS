@@ -6,6 +6,7 @@ from pathlib import Path
 
 from backtest_sla_risk import (
     _actual_future_outcome,
+    _bind_test_sequences,
     _warning_summary,
     backtest_model,
     build_report,
@@ -115,10 +116,50 @@ class SlaRiskBacktestTests(unittest.TestCase):
             "persistent_activation", wide["aggregate"]["crossing_events"]
         )
         self.assertEqual(
+            wide["aggregate"]["episode_events"]["total_activations"],
+            wide["aggregate"]["persistent_active"]["activation_transitions"],
+        )
+        self.assertEqual(
             len(wide["series"][0]["candidate_errors"]),
             wide["aggregate"]["candidate"]["confusion"]["FP"]
             + wide["aggregate"]["candidate"]["confusion"]["FN"],
         )
+
+    def test_csv_timestamps_do_not_change_legacy_window_or_crossing_metrics(self):
+        series = {
+            "series_id": "s0", "cid": "d0", "port_id": "2:4",
+            "values": [0.1, 0.2, 0.3, 0.45, 0.55, 0.65, 0.75,
+                       0.85, 0.9, 0.95, 0.7, 0.5, 0.3],
+        }
+        parameters = dict(model=model(0.05), threshold=0.8,
+                          required_consecutive_horizons=2,
+                          activation_windows=2, clear_windows=2)
+        nominal, nominal_points, nominal_candidates = backtest_model(
+            series=[series], **parameters)
+        timed, points, candidates = backtest_model(series=[{
+            **series, "timestamps_ns": [
+                1_790_000_000_000_000_000 + index * 1_100_000_000
+                for index in range(len(series["values"]))
+            ],
+        }], **parameters)
+        self.assertEqual(points, nominal_points)
+        self.assertEqual(candidates, nominal_candidates)
+        for key in nominal["aggregate"]:
+            if key != "episode_events":
+                self.assertEqual(timed["aggregate"][key], nominal["aggregate"][key])
+        self.assertEqual(timed["aggregate"]["episode_events"]["timing_basis"],
+                         "csv_timestamps")
+
+    def test_binding_rejects_missing_or_misaligned_timestamp_segments(self):
+        metadata = {"source_series": [{"series_id": "s0", "split": "test",
+                                        "cid": "d0", "port_id": "2:4",
+                                        "usable_sequences": 1}],
+                    "sequence_timestamps_ns": {"test": []}}
+        with self.assertRaises(ValueError):
+            _bind_test_sequences([[0.1, 0.2]], metadata)
+        metadata["sequence_timestamps_ns"]["test"] = [[1]]
+        with self.assertRaises(ValueError):
+            _bind_test_sequences([[0.1, 0.2]], metadata)
 
     def test_report_validates_sources_and_compares_two_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -209,6 +250,10 @@ class SlaRiskBacktestTests(unittest.TestCase):
                 report["models"]["coverage0.9"]["aggregate"]["evaluated_windows"],
                 0,
             )
+            self.assertEqual(report["schema_version"], "comas-sla-risk-backtest/2")
+            for result in report["models"].values():
+                self.assertEqual(result["aggregate"]["episode_events"]["timing_basis"],
+                                 "csv_timestamps")
 
 
 if __name__ == "__main__":

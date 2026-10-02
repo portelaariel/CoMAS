@@ -34,6 +34,7 @@ required_files=(
   qos_holt.py
   qos_telemetry.py
   sla_risk.py
+  sla_episode_evaluation.py
   train_qos_holt_model.py
   train_offline_model.py
   prepare_cicddos2019.py

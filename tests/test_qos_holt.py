@@ -12,7 +12,7 @@ from qos_holt import (
     train_qos_holt_model,
 )
 from sla_risk import SlaRiskPolicy, evaluate_sla_forecast
-from train_qos_holt_model import MANIFEST_SCHEMA, load_manifest
+from train_qos_holt_model import MANIFEST_SCHEMA, _split_on_invalid_or_gap, load_manifest
 
 
 def ramp(length, start=0.05, step=0.01):
@@ -188,6 +188,43 @@ class QosHoltManifestTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "sobrepõem"):
                 load_manifest(manifest_path)
+
+    def test_optional_timestamps_do_not_change_training_metadata_or_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps(self._manifest(self._write_dataset(root))),
+                                     encoding="utf-8")
+            _, original_values, original_metadata = load_manifest(manifest_path)
+            _, values, metadata = load_manifest(manifest_path, include_timestamps=True)
+            timestamps = metadata.pop("sequence_timestamps_ns")
+            self.assertEqual(values, original_values)
+            self.assertEqual(metadata, original_metadata)
+            self.assertEqual(timestamps["test"][0][0], 81_000_000_000)
+            self.assertEqual(len(timestamps["test"][0]), len(values["test"][0]))
+
+    def test_timestamp_segments_follow_invalid_gap_and_discarded_short_segments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "data.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "cid", "ts_ns", "port_id", "utilization_ratio", "quality",
+                ])
+                writer.writeheader()
+                for ts, quality in [(1, "VALID"), (2, "INVALID"),
+                                    (3, "VALID"), (4, "VALID"),
+                                    (10, "VALID"), (11, "VALID"),
+                                    (12, "INVALID"), (13, "VALID")]:
+                    writer.writerow({"cid": "d0", "ts_ns": ts, "port_id": "2:4",
+                                     "utilization_ratio": ts / 100, "quality": quality})
+            timestamps = []
+            values, stats = _split_on_invalid_or_gap(
+                path, cid="d0", port_id="2:4", start_ns=None, end_ns=None,
+                maximum_gap_ns=3, minimum_length=2, timestamp_sequences=timestamps,
+            )
+            self.assertEqual(timestamps, [[3, 4], [10, 11]])
+            self.assertEqual(values, [[0.03, 0.04], [0.1, 0.11]])
+            self.assertEqual(stats["gap_breaks"], 1)
 
 
 if __name__ == "__main__":

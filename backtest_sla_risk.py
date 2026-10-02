@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from qos_holt import MultiHorizonHoltForecaster, QosHoltModel
+from sla_episode_evaluation import (
+    episode_policy,
+    evaluate_episodes,
+    summarize_episode_reports,
+    validate_timestamps,
+)
 from sla_risk import (
     SLA_RISK_EVENT_TYPE,
     SlaRiskPersistence,
@@ -28,7 +34,7 @@ from sla_risk import (
 from train_qos_holt_model import load_manifest
 
 
-BACKTEST_SCHEMA_VERSION = "comas-sla-risk-backtest/1"
+BACKTEST_SCHEMA_VERSION = "comas-sla-risk-backtest/2"
 
 
 def _ratio(numerator: int, denominator: int) -> Optional[float]:
@@ -224,6 +230,11 @@ def _bind_test_sequences(
 ) -> List[Dict[str, Any]]:
     bound: List[Dict[str, Any]] = []
     cursor = 0
+    timestamp_partitions = metadata.get("sequence_timestamps_ns")
+    timestamps = (None if timestamp_partitions is None
+                  else timestamp_partitions["test"])
+    if timestamps is not None and len(timestamps) != len(test_sequences):
+        raise ValueError("timestamps não correspondem às sequências de teste")
     for source in metadata.get("source_series", []):
         if source.get("split") != "test":
             continue
@@ -232,12 +243,16 @@ def _bind_test_sequences(
             if cursor >= len(test_sequences):
                 raise ValueError("metadados excedem as sequências de teste")
             suffix = "" if count == 1 else f"#{segment + 1}"
-            bound.append({
+            item = {
                 "series_id": f"{source['series_id']}{suffix}",
                 "cid": source["cid"],
                 "port_id": source["port_id"],
                 "values": list(test_sequences[cursor]),
-            })
+            }
+            if timestamps is not None:
+                validate_timestamps(timestamps[cursor], len(item["values"]))
+                item["timestamps_ns"] = list(timestamps[cursor])
+            bound.append(item)
             cursor += 1
     if cursor != len(test_sequences):
         raise ValueError("sequências de teste não possuem metadados correspondentes")
@@ -391,9 +406,13 @@ def _raw_from_rendered(report: Dict[str, Any]) -> Dict[str, Any]:
 def _backtest_series(
     *, model: QosHoltModel, series: Dict[str, Any], policy: SlaRiskPolicy,
     activation_windows: int, clear_windows: int,
+    episode_min_breach_samples: int, episode_clear_samples: int,
 ) -> Tuple[Dict[str, Any], Dict[Tuple[str, int], Tuple[float, ...]],
            Dict[Tuple[str, int], bool]]:
     values = series["values"]
+    timestamps = series.get("timestamps_ns")
+    if timestamps is not None:
+        validate_timestamps(timestamps, len(values))
     forecaster = MultiHorizonHoltForecaster(model)
     persistence = SlaRiskPersistence(
         activation_windows=activation_windows,
@@ -413,7 +432,7 @@ def _backtest_series(
         if index + maximum_horizon >= len(values):
             accumulator["unscored_tail_windows"] += 1
             continue
-        observation_ns = int(
+        observation_ns = timestamps[index] if timestamps is not None else int(
             round((index + 1) * model.sample_interval_s * 1_000_000_000)
         )
         evaluation = evaluate_sla_forecast(
@@ -523,6 +542,15 @@ def _backtest_series(
         "port_id": series["port_id"],
         "samples": len(values),
         "candidate_errors": candidate_errors,
+        "episode_events": evaluate_episodes(
+            values=values, observations=observations, timestamps_ns=timestamps,
+            series_id=series["series_id"], cid=series["cid"],
+            port_id=series["port_id"], comparator=policy.comparator,
+            threshold=policy.threshold, sample_interval_s=model.sample_interval_s,
+            max_horizon_steps=maximum_horizon,
+            min_breach_samples=episode_min_breach_samples,
+            clear_samples=episode_clear_samples,
+        ),
         **_render_accumulator(accumulator),
     }
     return report, point_signature, candidate_signature
@@ -532,8 +560,10 @@ def backtest_model(
     *, model: QosHoltModel, series: Sequence[Dict[str, Any]],
     threshold: float, required_consecutive_horizons: int,
     activation_windows: int, clear_windows: int,
+    episode_min_breach_samples: int = 2, episode_clear_samples: int = 2,
 ) -> Tuple[Dict[str, Any], Dict[Tuple[str, int], Tuple[float, ...]],
            Dict[Tuple[str, int], bool]]:
+    episode_policy(episode_min_breach_samples, episode_clear_samples)
     policy = SlaRiskPolicy(
         metric="utilization_ratio",
         comparator="MAX",
@@ -552,6 +582,8 @@ def backtest_model(
             policy=policy,
             activation_windows=activation_windows,
             clear_windows=clear_windows,
+            episode_min_breach_samples=episode_min_breach_samples,
+            episode_clear_samples=episode_clear_samples,
         )
         per_series.append(report)
         point_signature.update(points)
@@ -574,7 +606,12 @@ def backtest_model(
             }
             for item in model.horizons
         ],
-        "aggregate": _render_accumulator(aggregate),
+        "aggregate": {
+            **_render_accumulator(aggregate),
+            "episode_events": summarize_episode_reports([
+                item["episode_events"] for item in per_series
+            ]),
+        },
         "series": per_series,
     }, point_signature, candidate_signature)
 
@@ -583,8 +620,11 @@ def build_report(
     *, manifest_path: Path, model_specs: Sequence[Tuple[str, Path]],
     threshold: float, required_consecutive_horizons: int,
     activation_windows: int, clear_windows: int,
+    episode_min_breach_samples: int = 2, episode_clear_samples: int = 2,
 ) -> Dict[str, Any]:
-    manifest, partitions, metadata = load_manifest(manifest_path)
+    manifest, partitions, metadata = load_manifest(
+        manifest_path, include_timestamps=True
+    )
     series = _bind_test_sequences(partitions["test"], metadata)
     models: Dict[str, Any] = {}
     point_signatures = []
@@ -599,6 +639,8 @@ def build_report(
             required_consecutive_horizons=required_consecutive_horizons,
             activation_windows=activation_windows,
             clear_windows=clear_windows,
+            episode_min_breach_samples=episode_min_breach_samples,
+            episode_clear_samples=episode_clear_samples,
         )
         result["path"] = str(path.resolve())
         models[name] = result
@@ -624,6 +666,10 @@ def build_report(
                 "actual observations breach the SLA at the same required number "
                 "of consecutive forecast horizons"
             ),
+            "raw_crossing_timing": "nominal sample intervals; legacy metrics preserved",
+            "episode_evaluation": episode_policy(
+                episode_min_breach_samples, episode_clear_samples
+            ),
         },
         "comparison": {
             "point_forecasts_identical_across_models": (
@@ -644,6 +690,17 @@ def build_report(
             "and is not eligible for model promotion.",
             "Ground truth is derived from observed port utilization, not from "
             "an independent application-level SLA measurement.",
+            "Episode metrics supplement, and do not erase, instantaneous "
+            "violations or window-level false positives. An unmatched "
+            "activation is not automatically an instantaneous-SLA false alarm.",
+            "Episode matching uses CSV elapsed time within the maximum nominal "
+            "forecast horizon; forecasts themselves use sample steps. Raw "
+            "crossing lead times retain the legacy nominal-time calculation.",
+            "Episodes use only evaluated windows as warning opportunities; "
+            "priming and unscored tail windows do not provide warnings. "
+            "Incomplete future follow-up is censored, not counted as a false alarm.",
+            "Freeze the episode definition before independent validation; "
+            "post-hoc grouping of a pilot trace is exploratory only.",
         ],
     }
 
@@ -670,6 +727,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--required-consecutive-horizons", type=int, default=2)
     parser.add_argument("--activation-windows", type=int, default=2)
     parser.add_argument("--clear-windows", type=int, default=2)
+    parser.add_argument(
+        "--episode-min-breach-samples", type=int, default=2,
+        help="amostras consecutivas em violação para confirmar um episódio observado",
+    )
+    parser.add_argument(
+        "--episode-clear-samples", type=int, default=2,
+        help="amostras consecutivas sem violação para encerrar o episódio observado",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--force", action="store_true")
     return parser
@@ -697,6 +762,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             required_consecutive_horizons=args.required_consecutive_horizons,
             activation_windows=args.activation_windows,
             clear_windows=args.clear_windows,
+            episode_min_breach_samples=args.episode_min_breach_samples,
+            episode_clear_samples=args.episode_clear_samples,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
@@ -719,12 +786,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for name, result in report["models"].items():
         aggregate = result["aggregate"]
         metrics = aggregate["candidate"]["metrics"]
+        episodes = aggregate["episode_events"]
         print(
             f"{name}: coverage={result['coverage']} "
             f"windows={aggregate['evaluated_windows']} "
             f"watch={aggregate['watch_only']['windows']} "
             f"precision={metrics['precision']} recall={metrics['recall']} "
             f"f1={metrics['f1']}"
+        )
+        print(
+            f"{name}: episodes={episodes['detected']}/{episodes['eligible_episodes']} "
+            f"unmatched_activations={episodes['unmatched_activations']} "
+            f"censored_activations={episodes['censored_activations']} "
+            f"lead_mean_s={episodes['warning_lead_time_s']['mean']} "
+            f"timing={episodes['timing_basis']}"
         )
     return 0
 

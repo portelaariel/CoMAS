@@ -63,17 +63,22 @@ def _optional_ns(raw: Any, name: str) -> Optional[int]:
 def _split_on_invalid_or_gap(
     path: Path, *, cid: str, port_id: str, start_ns: Optional[int],
     end_ns: Optional[int], maximum_gap_ns: int, minimum_length: int,
+    timestamp_sequences: Optional[List[List[int]]] = None,
 ) -> Tuple[List[List[float]], Dict[str, Any]]:
     sequences: List[List[float]] = []
     current: List[float] = []
+    current_timestamps: List[int] = []
     previous_ns: Optional[int] = None
     selected = invalid = gap_breaks = 0
 
     def finish() -> None:
-        nonlocal current
+        nonlocal current, current_timestamps
         if len(current) >= minimum_length:
             sequences.append(current)
+            if timestamp_sequences is not None:
+                timestamp_sequences.append(current_timestamps)
         current = []
+        current_timestamps = []
 
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -94,6 +99,8 @@ def _split_on_invalid_or_gap(
                 finish()
                 previous_ns = None
                 continue
+            if timestamp_sequences is not None and timestamp <= 0:
+                raise ValueError(f"timestamp QoS deve ser positivo em {path}")
             if previous_ns is not None:
                 delta = timestamp - previous_ns
                 if delta <= 0 or delta > maximum_gap_ns:
@@ -103,6 +110,8 @@ def _split_on_invalid_or_gap(
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"utilização inválida em {path}: {value!r}")
             current.append(value)
+            if timestamp_sequences is not None:
+                current_timestamps.append(timestamp)
             previous_ns = timestamp
     finish()
     return sequences, {
@@ -135,7 +144,7 @@ def _validate_no_cross_split_overlap(entries: Sequence[Dict[str, Any]]) -> None:
 
 
 def load_manifest(
-    path: Path,
+    path: Path, *, include_timestamps: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, List[List[float]]], Dict[str, Any]]:
     manifest_path = path.resolve()
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -188,6 +197,7 @@ def load_manifest(
     )
 
     partitions: Dict[str, List[List[float]]] = {name: [] for name in SPLITS}
+    timestamps: Dict[str, List[List[int]]] = {name: [] for name in SPLITS}
     sources: List[Dict[str, Any]] = []
     digests: Dict[str, str] = {}
     for entry in entries:
@@ -200,6 +210,8 @@ def load_manifest(
             end_ns=entry["end_ns"],
             maximum_gap_ns=maximum_gap_ns,
             minimum_length=minimum_length,
+            timestamp_sequences=(timestamps[entry["split"]]
+                                 if include_timestamps else None),
         )
         if not sequences:
             raise ValueError(
@@ -236,6 +248,9 @@ def load_manifest(
             for split in SPLITS
         },
     }
+    # Opt-in backtest data only: do not change training provenance/model IDs.
+    if include_timestamps:
+        metadata["sequence_timestamps_ns"] = timestamps
     return payload, partitions, metadata
 
 

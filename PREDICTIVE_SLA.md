@@ -82,15 +82,44 @@ ground truth uses the same horizon rule as the policy: the observed utilization
 must cross the SLA in the required number of consecutive forecast horizons.
 The report separates point-forecast candidates, interval-only `WATCH` signals
 and the persistent active state. It also measures warning lead time against
-actual transitions into SLA violation. Persistent-state coverage and fresh
+actual transitions into SLA violation using nominal sample intervals.
+Persistent-state coverage and fresh
 activation before a crossing are reported separately, so an old active state
 cannot be presented as a new warning. Candidate FP/FN windows retain their
 observed value, future ground truth and forecast horizons for diagnosis.
 
 Multiple interval coverages can be compared without conflating them with the
 point forecast. When Holt parameters are identical, interval coverage can
-change `WATCH`, `HIGH_CONFIDENCE` and persistent clearing, but it cannot change
-the raw `PREDICTED_SLA_RISK` candidate, which depends on point forecasts.
+change `WATCH` and `HIGH_CONFIDENCE`, but it cannot change the raw
+`PREDICTED_SLA_RISK` candidate, which depends on point forecasts. Persistent
+clearing now counts consecutive non-candidates, including `WATCH`; wider
+intervals cannot hold a stale active state by themselves.
+
+Schema `comas-sla-risk-backtest/2` adds `episode_events` without changing those
+legacy metrics. Under `observed-sla-episodes/1`, the default observed episode
+is confirmed by two consecutive breach samples and starts retrospectively at
+the first of them. Two non-breach samples clear it; single-sample dips do not
+fragment an already confirmed episode. Unconfirmed spikes remain recorded
+and are not erased from the instantaneous crossing or window metrics.
+
+Match episodes chronologically to the earliest unused persistent activation
+strictly before onset, within the maximum nominal forecast horizon measured
+by actual CSV timestamps. Both episodes and activations have one-to-one
+matches within each series. The report retains onset, confirmation, last
+breach and clear timestamps, actual and nominal warning lead times, and all
+matched/unmatched activation records. Activations at or after onset are not
+preventive warnings. Priming and unscored tail windows supply no activation
+opportunities. Unmatched activations lacking enough future observation to
+cover the onset horizon and confirm a boundary episode are censored, not
+declared false alarms. `activation_match_rate` excludes them and is not
+window-classification precision. Onsets without any evaluated pre-onset
+window within the horizon are ineligible, not missed warnings.
+
+Keep episode parameters separate from forecast persistence and freeze them
+before independent validation. Grouping an already inspected pilot is
+exploratory; two sides of the same link do not provide independent trials.
+This command remains offline and cannot publish proposals, consult an LLM
+or invoke preventive actuators.
 
 Example comparing two read-only artifacts:
 
@@ -102,6 +131,8 @@ python3 backtest_sla_risk.py qos-holt-manifest.json \
   --required-consecutive-horizons 2 \
   --activation-windows 2 \
   --clear-windows 2 \
+  --episode-min-breach-samples 2 \
+  --episode-clear-samples 2 \
   --output models/qos-sla-risk-backtest.json
 ```
 

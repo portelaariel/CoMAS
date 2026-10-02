@@ -948,8 +948,38 @@ python3 backtest_sla_risk.py qos-holt-manifest.json \
   --model coverage95=models/qos-utilization-holt-coverage95.json \
   --model coverage90=models/qos-utilization-holt-coverage90.json \
   --threshold 0.80 \
+  --episode-min-breach-samples 2 \
+  --episode-clear-samples 2 \
   --output models/qos-sla-risk-backtest.json
 ```
+
+O relatório `comas-sla-risk-backtest/2` mantém as métricas por janela e os
+cruzamentos instantâneos originais. Em `episode_events`, acrescenta uma
+avaliação complementar de sobrecarga sustentada: duas amostras consecutivas em
+violação confirmam um episódio, cujo início é retrospectivamente a primeira
+delas; duas sem violação o encerram. Uma queda isolada abaixo do limiar não
+fragmenta um episódio já confirmado. Os parâmetros de episódio são separados
+da persistência das previsões e devem ser congelados antes da validação.
+
+Cada ativação nova de risco pode antecipar apenas um episódio da mesma série,
+e cada episódio recebe no máximo uma ativação. O pareamento segue a ordem
+cronológica dos episódios e escolhe a ativação mais antiga ainda não usada,
+estritamente anterior ao início e dentro do maior horizonte nominal. A
+antecedência de `episode_events` é calculada pelos timestamps reais do CSV;
+`nominal_warning_lead_time_s` permite comparar com o intervalo de amostragem.
+As métricas antigas de `crossing_events` continuam usando tempo nominal e
+podem associar a mesma ativação a vários cruzamentos.
+
+O relatório distingue episódios sem oportunidade de previsão, ativações
+sem episódio correspondente e ativações censuradas por observação futura
+incompleta, inclusive quando faltam amostras para confirmar um episódio no
+fim do horizonte. `activation_match_rate` exclui as censuradas do denominador; não
+é uma precisão de classificação por janela. Ativações durante um episódio
+não contam como avisos antecipados. Somente janelas avaliadas fornecem
+ativações: aquecimento e cauda sem horizonte futuro completo não fornecem
+avisos. Episódios e portas correlacionadas não são repetições independentes,
+e essa análise não elimina violações instantâneas nem falsos positivos por
+janela. Agrupamentos escolhidos após examinar o piloto são exploratórios.
 
 O manifesto usa o schema `comas-qos-holt-training/1`. O escopo
 `pilot_single_run_temporal_split` serve apenas para validar a mecânica; uma

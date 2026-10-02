@@ -989,6 +989,16 @@ para calibração e teste. As séries dos dois lados de um link não contam como
 repetições independentes. Consulte `PREDICTIVE_SLA.md` para o contrato e as
 etapas de segurança.
 
+Para testar os artefatos do piloto em novas coletas, a campanha prospectiva
+congela modelos, código e política antes da execução. São quatro perfis
+(tráfego estável, pulsos curtos e duas rampas) com três repetições, em modo
+shadow, sem retreinamento, LLM ou mitigação. O coletor exige preflight e
+autorização explícita para gerar tráfego no laboratório; valida a entrega
+observada e preserva casos incompletos como inválidos, não como TN. Os passos
+de congelamento, coleta e avaliação estão na fase 5 de `PREDICTIVE_SLA.md`.
+As duas portas continuam correlacionadas e os modelos do piloto permanecem
+inelegíveis para promoção.
+
 ## Experimentos avançados
 
 ### Modos do runner genérico

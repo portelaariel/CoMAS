@@ -31,6 +31,8 @@ required_files=(
   collaborative_decision.py
   offline_model.py
   backtest_sla_risk.py
+  predictive_sla_validation.py
+  scripts/collect_qos_validation_campaign.py
   qos_holt.py
   qos_telemetry.py
   sla_risk.py

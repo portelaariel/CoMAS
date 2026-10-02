@@ -140,6 +140,95 @@ Window-level classifications in this report are temporally dependent. They
 must not be presented as independent experimental repetitions, and a
 single-run temporal split remains ineligible for promotion.
 
+## Phase 5: prospective validation with frozen artifacts
+
+`predictive_sla_validation.py freeze` copies the two pilot models byte-for-byte
+and seals a protocol before collecting new traces. Coverage 90% is the primary
+artifact and coverage 95% a sensitivity comparison. Neither artifact is refit:
+their original training scope and source hashes remain unchanged. Code hashes,
+sampling (2 s), horizons (4/8/12 s), threshold (0.80), two consecutive horizons,
+activation/clearing windows (2/2), and observed-episode policy (2/2) are frozen.
+Checksums detect changes; they are not signatures or independent attestation.
+
+The default campaign schedules four workloads in three repetitions, rotating
+their order: stable low traffic, isolated two-second pulses, a slow ramp, and a
+fast ramp. Each run has a low-rate warmup and recovery period. Total planned
+measurement time is 29.8 minutes, plus process startup and command overhead.
+The profile name is not a ground-truth label. In particular, counter sampling
+can dilute or split a two-second pulse; episodes are derived from the measured
+utilization, not from the intended source rate.
+
+Prerequisites are the existing two-domain Mininet, fresh QoS telemetry for
+`192.168.10.10/2:4` and `192.168.11.10/3:3`, capacity 100 Mbit/s, and the
+persistent IPv4 calibration rules for h1/h8: cookie `0x51534c41`, priority
+3100, zero timeouts, forward switch ports s1 `1→3`, s2 `3→4`, s3 `3→4`,
+s4 `3→2`, with inverse rules for the reverse direction. The preflight checks
+these rules but never installs or removes flows. CoMAS must have
+`auto_mitigate=false`, `dry_run=true`, `agentic_mode=shadow`, live opt-in off,
+actuation disabled, and zero live executions. Existing h1 shaping or iperf in
+either host causes refusal rather than automatic cleanup.
+
+On the Linux experiment server, freeze first and inspect the read-only
+preflight. Use a new output directory; existing results are never overwritten:
+
+```bash
+PILOT_ROOT="/home/ubuntu/sdn-ariel/comas-predictive-sla/experiments/results/qos-continuous-static-v1-20260925T121303Z"
+PROTOCOL_ROOT="$PWD/experiments/results/qos-prospective-v1"
+python3 predictive_sla_validation.py freeze \
+  --pilot-root "$PILOT_ROOT" --output "$PROTOCOL_ROOT"
+sudo -v
+python3 scripts/collect_qos_validation_campaign.py \
+  --protocol "$PROTOCOL_ROOT/protocol.json" --preflight-only
+```
+
+After `preflight=READY`, run in a persistent terminal. Keep the repository
+version unchanged between freezing, collecting, and evaluating. Collection
+requires an explicit laboratory traffic opt-in:
+
+```bash
+python3 scripts/collect_qos_validation_campaign.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --output "$PWD/experiments/results/qos-prospective-v1/campaign" \
+  --allow-lab-traffic
+```
+
+The collector creates its own bounded iperf processes (UDP port 5009) and a
+tagged HTB qdisc `7a51:` on h1 solely to generate the planned workload. It
+records the two monitored ports through GET requests, deduplicates timestamps,
+and periodically rechecks the shadow configuration and namespace identity.
+Normal completion, Ctrl-C, and SIGTERM preserve a sealed `run.json` and clean
+up only these process groups and this qdisc. No global `pkill`, topology
+restart, controller reconfiguration, ETCD write, LLM call, or mitigation occurs.
+A crash, SIGKILL, or server reboot cannot guarantee cleanup: inspect the tagged
+qdisc/processes before restarting; the next preflight refuses residual state.
+
+Offline evaluation rejects missing/failed cases, changed CSVs, reused pilot
+artifacts, overlapping runs, invalid observations, gaps above 5 s, or absent
+boundary coverage. For stages lasting at least 10 s, it excludes the first 4 s
+and requires mean utilization between 50% and 200% of the nominal shaped
+rate/capacity. This deliberately broad delivery check detects broken traffic
+paths without defining SLA ground truth or tuning forecasts. Rejected cases
+remain visible rather than being silently segmented or counted as TN.
+
+The collector writes `campaign-summary.json` after the planned runs. To inspect
+partial data or regenerate an offline report without overwriting that summary:
+
+```bash
+python3 predictive_sla_validation.py evaluate \
+  --protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v1/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v1/campaign-review.json"
+```
+
+Reports retain candidate FP/FN windows, WATCH, observed episodes, one-to-one
+warnings, unmatched/censored activations, and timestamp-based lead times by
+run and port. Both link ends are correlated; pooled window or episode counts
+are descriptive, not independent trials. Repetitions share the same testbed,
+so statistical independence is not guaranteed. These new traces test the
+frozen pilot artifacts prospectively, but do not convert their training scope
+to `independent_run_holdout`, enable promotion, or demonstrate application SLA
+protection, Internet-scale generalization, LLM decisions, or preventive action.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

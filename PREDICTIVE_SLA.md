@@ -266,6 +266,81 @@ frozen pilot artifacts prospectively, but do not convert their training scope
 to `independent_run_holdout`, enable promotion, or demonstrate application SLA
 protection, Internet-scale generalization, LLM decisions, or preventive action.
 
+## Confirmation protocol v2: one activation window
+
+Protocol v2 changes only `activation_windows` from two to one. The threshold
+remains 0.80, two consecutive forecast horizons are still required, clearing
+still requires two windows, and observed episodes still require two breach
+samples and two clear samples. It uses byte-identical copies of the v1 frozen
+models; it does not refit or modify runtime CoMAS configuration. In particular,
+the risk policy is evaluated offline, not published or applied online.
+
+The policy was selected by looking at v1 results. V2 therefore records that
+selection as **post-hoc** in `selection-analysis.json`, and requires a separate
+12-run campaign collected after its own freeze. Its evaluator excludes pilot
+and v1 CSVs, reused traces, invalid observations and overlapping runs. The two
+ports are still correlated, and repeated runs share the same testbed.
+
+V2 has separate Python entry points. Neither of the v1 frozen code files is
+edited, so the old protocol can still be loaded and re-evaluated. Freeze v2
+from the completed v1 campaign, not from a newly fitted model:
+
+```bash
+python3 predictive_sla_validation_v2.py freeze \
+  --source-protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --source-campaign "$PWD/experiments/results/qos-prospective-v1/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v2"
+
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v2.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --preflight-only
+```
+
+The freeze recomputes v1's summary, checks its stored report and sources, copies
+the models without fitting, and protects the original v1 artifacts by hash.
+Existing output directories and overlapping v1/v2 destinations are refused.
+Original artifacts must remain available and unchanged for v2 provenance checks.
+Do not restart old collectors, refreeze v1 or change the frozen code during either
+campaign. The safe, fresh-history shadow collectors used for v1 can remain running.
+
+After preflight, use a persistent terminal and refresh the sudo ticket inside
+that terminal. The existing Mininet session must remain alive:
+
+```bash
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v2.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --output "$PWD/experiments/results/qos-prospective-v2/campaign" \
+  --allow-lab-traffic
+```
+
+V2 reuses the unchanged v1 traffic/cleanup implementation and the same exclusive
+lock. It cannot collect concurrently with v1. The v1 run-record schema remains
+unchanged; its protocol hash links each record to v2. No actuator, LLM, controller
+restart, runtime reconfiguration or new Docker deployment is involved.
+
+The primary analysis is `coverage90` with one activation window. `coverage95` is
+interval sensitivity, while `coverage90-confirmation2` is a predeclared paired
+reference with two windows on the **same new traces**, not an independent group.
+All three must retain identical point forecasts and candidate decisions.
+
+The fixed primary acceptance criteria require all 12 valid runs, no persistent
+activations in stable-low/short-pulses, at least one eligible episode for each
+ramp run and monitored port, pre-onset warnings for every eligible ramp episode,
+and no unmatched or censored activations. These are conservative research gates
+for this testbed, not universal SLA or safety guarantees. Window-level FP/FN,
+WATCH and timestamp-based lead times remain visible even if the gates pass.
+No minimum actuator/LLM timing budget is asserted or tested.
+
+`status=COMPLETED` means trace integrity and collection completed;
+`criteria=PASSED` separately reports the selected policy's shadow gates. Exit
+codes are 0 for both passing, 2 for invalid/incomplete data and 3 for completed
+data with failed policy criteria. Reports always retain `promotion_eligible=false`.
+Neither status enables preventive mitigation. To regenerate a read-only report,
+use `predictive_sla_validation_v2.py evaluate` with the protocol, campaign root
+and a new `--output "$PWD/experiments/results/qos-prospective-v2/campaign-review.json"`.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

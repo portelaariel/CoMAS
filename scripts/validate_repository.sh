@@ -32,7 +32,9 @@ required_files=(
   offline_model.py
   backtest_sla_risk.py
   predictive_sla_validation.py
+  predictive_sla_validation_v2.py
   scripts/collect_qos_validation_campaign.py
+  scripts/collect_qos_validation_campaign_v2.py
   scripts/recover_qos_runtime.py
   qos_holt.py
   qos_telemetry.py

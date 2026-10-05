@@ -341,6 +341,52 @@ Neither status enables preventive mitigation. To regenerate a read-only report,
 use `predictive_sla_validation_v2.py evaluate` with the protocol, campaign root
 and a new `--output "$PWD/experiments/results/qos-prospective-v2/campaign-review.json"`.
 
+## Supplementary post-hoc diagnostics (v2 remains unchanged)
+
+`predictive_sla_diagnostics.py` separately diagnoses fresh coverage by an already
+active alert and the predictions behind control activations. It does not change
+the v1/v2 frozen code, model artifacts, one-to-one activation matching, official
+criteria, report or runtime settings. A completed diagnostic is not a passed
+policy: the original `criteria_status`, activation counts, FP/FN and WATCH remain
+in its baseline block. The supplementary report always has
+`promotion_eligible=false` and explicitly labels the analysis as post-hoc.
+
+For each eligible observed episode, fresh coverage requires that the immediately
+preceding observation has a scored forecast, a `PREDICTED_SLA_RISK` candidate,
+and an active alert. Its age at onset must not exceed the existing protocol's
+`quality.maximum_gap_s` (5 s). This uses a data-quality bound, not a validated
+SLA response deadline. An active state without a renewed candidate does not
+count. Missing/unscored or stale forecasts are explicitly unassessable; the
+reported coverage denominator still includes all eligible episodes.
+
+One alert with renewed forecasts may cover two observed episodes separated by
+two clear observed samples. This is reported as `covered_without_new_activation`,
+not another matched activation. The latest forecast's age is not a new warning
+lead time, and neither metric establishes preventive effectiveness. Coverage
+need not exceed activation-based anticipation: an earlier matched warning can
+also lack a fresh candidate immediately before onset.
+
+The tool re-evaluates the completed campaign and checks the stored v2 summary,
+source records, CSVs, frozen model/code hashes and native replay signatures.
+All scoring, priming and unscored-tail rules stay unchanged. For control
+activations, it saves the point forecasts, Holt level/trend, actual future
+observations, residuals and nearby states. Future observations are diagnostic
+ground truth only, never forecasting inputs. It does not fit or try alternative
+Holt settings, make LLM calls, generate traffic or actuate.
+
+```bash
+python3 predictive_sla_diagnostics.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v2/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v2/supplementary-diagnostics-v1.json"
+```
+
+Only a new `supplementary-diagnostics*.json` directly inside the v2 protocol
+directory is accepted; existing output and original artifacts are protected.
+The console has at most nine lines; additional control details remain in JSON.
+Preserve v2 results before choosing any next-model development experiment or
+prospective v3 policy. This descriptive diagnostic is not a new validation run.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

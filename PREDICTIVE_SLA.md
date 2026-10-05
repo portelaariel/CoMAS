@@ -387,6 +387,65 @@ The console has at most nine lines; additional control details remain in JSON.
 Preserve v2 results before choosing any next-model development experiment or
 prospective v3 policy. This descriptive diagnostic is not a new validation run.
 
+## Post-hoc damped-trend sensitivity (offline development only)
+
+`predictive_sla_damping_study.py` compares the frozen coverage90 point forecasts
+with additive damped Holt variants after the v2 failures have been inspected.
+The fixed sensitivity grid is `phi = 1.00, 0.98, 0.95, 0.90, 0.80`. These are
+engineering comparison settings, not empirically justified operating values;
+the tool reports all of them without fitting, ranking, selecting or deploying
+a variant. V2 traces are now development data for this alternative, not an
+independent holdout. The original v2 `NOT_PASSED` result is never replaced.
+
+The state update and forecast are additive damped Holt:
+
+```text
+level_t = alpha*y_t + (1-alpha)*(level_(t-1) + phi*trend_(t-1))
+trend_t = beta*(level_t-level_(t-1)) + (1-beta)*phi*trend_(t-1)
+prediction_(t+h) = max(0, level_t + (phi + ... + phi^h)*trend_t)
+```
+
+These recursions follow the additive damped implementation in the
+[official statsmodels source](https://www.statsmodels.org/stable/_modules/statsmodels/tsa/holtwinters/model.html).
+No statsmodels installation is needed. The same first-observation level, zero
+initial trend, per-horizon alpha/beta, priming, rounding and per-series reset
+as the frozen model are retained. With `phi=1`, every scored point, candidate,
+activation, clearing, confusion count and episode match must reproduce the
+native frozen backtest; any mismatch stops the study. Alpha/beta are not
+refitted and may not be optimal for damped variants. Smaller phi also damps
+falling trends and can change alert clearing; it is not assumed to lower every
+forecast or improve every metric.
+
+Changed predictions require newly calibrated intervals. This point-only study
+does **not** borrow the original conformal radii, fabricate confidence bounds,
+score WATCH or claim interval coverage. Two consecutive point-forecast horizons,
+threshold 0.80, one-window activation, two-window clearing, and the original
+observed-episode matcher stay fixed. WATCH and NORMAL both interrupt/clear the
+native point-candidate persistence, so omitting WATCH does not change that path.
+Future samples are used only to compute forecast errors and observed outcomes,
+never to update a predictor or choose phi.
+
+The report retains official results, source/code hashes, aggregate and per-run/
+profile metrics, losses/gains in episode anticipation, and forecast context at
+each baseline control activation. It distinguishes correlated port/episode
+counts from the 12 workload runs and saves only a new report, not a runtime
+model. `selected_variant=null`, `deployment_eligible=false` and
+`promotion_eligible=false` apply to every outcome. The output has seven console
+lines; details remain in JSON.
+
+```bash
+python3 predictive_sla_damping_study.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v2/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v2/damping-sensitivity-v1.json"
+```
+
+Only a new `damping-sensitivity*.json` directly inside the v2 protocol directory
+is accepted. Original protocol, models, summaries and CSVs are protected and
+checked before/after replay. A completed study is not a passing validation.
+Any subsequent model choice needs separate training/calibration and a frozen
+prospective experiment on newly collected traces.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

@@ -498,6 +498,58 @@ The console contains eight lines. Training/calibration provenance, full grid
 results and limitations remain in `qos-damped-holt-evaluation.json` and
 `development-spec.json`; no prospective-test metrics are fabricated.
 
+## Replay of the trained damped model (inspected v2 development data)
+
+`predictive_sla_damped_replay.py` compares that existing trained artifact with
+the frozen original coverage90 Holt on all twelve already inspected v2 runs.
+It performs no fitting or recalibration and preserves the threshold 0.80,
+two consecutive point-forecast horizons, one-window activation, two-window
+clearing and original sustained-episode matcher. Because v2 failures informed
+the damping family, this is **post-hoc development diagnosis**, not an
+independent test or a replacement of the official v2 `NOT_PASSED` result.
+
+The original replay must reproduce native predictions, interval-derived WATCH,
+candidate/persistent confusion and episode matches before the comparison is
+published. The trained path uses `MultiHorizonDampedHoltForecaster` and its new
+v1-calibrated radii; native Holt must not be used to silently ignore `phi`.
+Both paths reset at every port/run boundary and retain identical priming and
+unscored tails. Future values are scoring labels only. Forecast errors and
+empirical interval coverage concern common scored v2 windows, not the earlier
+training/calibration scoring scope or independent coverage guarantees.
+
+The report distinguishes strict pre-onset anticipation from the original
+matcher's `at_or_after_episode_onset` activations, with late delays measured
+from CSV timestamps. Late activations never become positive warning lead
+times. Lost/gained anticipation retains observed episode identities; WATCH,
+control activations, unmatched/duplicate/censored activations and per-profile/
+run metrics remain separate. An already active alert can cover a later
+episode without a new activation; this strict matcher does not award that
+coverage as a fresh warning. Correlated ports/episodes are not independent runs.
+
+It also checks the structural identity for equal-alpha, zero-beta 4/8-second
+models: the short point forecasts coincide, so the two-horizon candidate
+reduces to their smoothed level crossing 0.80. The 12-second forecast alone
+cannot confirm a candidate. This diagnostic does not change the model or rule.
+
+Training receipt/model/report, their v1 source lineage, original v2 results and
+analysis code are checked before/after replay. Only a new `replay-v2*.json`
+directly in the existing `qos-damped-development*` directory is accepted;
+overwrites and source targets are refused. The seven console lines summarize
+original/trained anticipation, late/control alarms, paired losses/gains and
+the structural check; full traces and limitations stay in JSON. A successful
+command means the replay finished, not that SLA-warning criteria passed.
+`independent_test=false`, `promotion_eligible=false` and
+`deployment_eligible=false` remain mandatory. No traffic, runtime, ETCD, LLM
+or preventive action is involved.
+
+```bash
+python3 predictive_sla_damped_replay.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v2/campaign" \
+  --development-root "$PWD/experiments/results/qos-damped-development-v1" \
+  --output "$PWD/experiments/results/qos-damped-development-v1/replay-v2-v1.json"
+```
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

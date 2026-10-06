@@ -35,6 +35,7 @@ required_files=(
   predictive_sla_validation_v2.py
   predictive_sla_diagnostics.py
   predictive_sla_damping_study.py
+  predictive_sla_damped_replay.py
   scripts/collect_qos_validation_campaign.py
   scripts/collect_qos_validation_campaign_v2.py
   scripts/recover_qos_runtime.py

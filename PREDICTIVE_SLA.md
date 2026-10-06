@@ -550,6 +550,66 @@ python3 predictive_sla_damped_replay.py \
   --output "$PWD/experiments/results/qos-damped-development-v1/replay-v2-v1.json"
 ```
 
+## Train-only selection for early warnings (new development artifacts)
+
+`train_qos_warning_model.py` addresses the mismatch between forecast MSE and
+early warnings without changing any frozen model, protocol or result. It reuses
+only v1 whole-run repetitions 1/2 for selection (eight workloads, two correlated
+ports each). Repetition 3 (four workloads) calibrates residual intervals **after**
+the parameter tuple is fixed. The command does not read v2 experiment data.
+This objective was designed after inspecting v2 failures, so the work remains
+post-hoc development, not an independent validation.
+
+The bounded family shares one alpha/beta/phi tuple across the three horizons;
+the existing 6 x 6 x 5 grid yields 180 joint candidates, rather than all
+horizon-specific combinations. This is a deliberate restriction, not an
+equivalence to the previous per-horizon MSE search. Zero beta and undamped
+variants remain in the grid; no parameter is forced to produce a trend.
+
+Feasibility requires zero training-control activations, zero censored activations
+and at least one anticipated episode. Among feasible candidates the fixed
+lexicographic order maximizes anticipated episode fraction, then minimizes
+late activations, unmatched activations, candidate false-positive window rate,
+and finally forecast MSE. Correlated ports are pooled per workload, runs receive
+equal weight within profiles, and profiles receive equal weight. Anticipation
+and lateness objectives concern the ramp profiles. There are no invented cost
+weights or conditional-lead-time optimization; the priorities themselves are
+explicit design choices, not proven optimal operating costs.
+
+The threshold .80, two adjacent forecast horizons, one-window activation,
+two-window clearing and sustained-episode matcher remain fixed. Original v1
+official activation-2 results are checked for exact reproduction and preserved;
+the new training reference is explicitly an activation-1 development replay.
+Intervals during search are internal zero-radius placeholders, never published
+as calibrated models. WATCH is not a selection target. The final radii are
+recalibrated from repetition 3, and exact point/candidate/activation/episode
+signatures must remain unchanged after calibration.
+
+Only a **new sibling** `qos-warning-development*` directory is accepted; existing
+directories and source targets are refused. The sealed spec and evaluation
+contain hashes of original v1 sources and analysis code, the full candidate
+table, run/profile weighting, paired episode losses/gains, misses and conditional
+lead times. An infeasible search writes diagnostics with
+`status=NO_FEASIBLE_CANDIDATE` and no model file, never an all-zero-alarm fallback.
+A selected model uses the separate damped artifact type, is rejected by the
+native loader, and is not automatically deployed. Earlier MSE artifacts and
+their replay receipts remain untouched.
+
+```bash
+python3 train_qos_warning_model.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v1/campaign" \
+  --output "$PWD/experiments/results/qos-warning-development-v1"
+```
+
+The console contains seven lines; full details remain in
+`qos-warning-evaluation.json`, `development-spec.json` and, only if feasible,
+`qos-warning-model.json`. A completed search is not a criteria pass. Training
+results and descriptive calibration coverage do not establish generalization,
+operational safety or SLA protection. Independent test, promotion and deployment
+flags stay false. A separately frozen evaluation on new traces is still required;
+no runtime, LLM, ETCD, new traffic or preventive action occurs here.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

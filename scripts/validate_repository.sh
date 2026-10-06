@@ -41,11 +41,13 @@ required_files=(
   scripts/recover_qos_runtime.py
   qos_holt.py
   qos_damped_holt.py
+  qos_warning_selection.py
   qos_telemetry.py
   sla_risk.py
   sla_episode_evaluation.py
   train_qos_holt_model.py
   train_qos_damped_holt_model.py
+  train_qos_warning_model.py
   train_offline_model.py
   prepare_cicddos2019.py
   evaluate_offline_model.py

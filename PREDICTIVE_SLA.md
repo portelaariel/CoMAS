@@ -446,6 +446,58 @@ checked before/after replay. A completed study is not a passing validation.
 Any subsequent model choice needs separate training/calibration and a frozen
 prospective experiment on newly collected traces.
 
+## Joint damped-Holt training and recalibration (offline development)
+
+`train_qos_damped_holt_model.py` fits a **separate experimental artifact** from
+the completed, sealed v1 campaign. Repetitions 1 and 2 (eight workload runs)
+select parameters; repetition 3 (four runs) calibrates new intervals. Each
+workload's two correlated ports stay together in one partition, and model
+states reset at each port/run boundary. No samples are concatenated between
+runs. V1 has already been inspected, so neither partition is an independent
+test. V2 data are not read, fitted, or relabeled as a passing validation.
+
+For each 4/8/12-second nominal horizon, joint train-only grid search uses
+`alpha = 0.10, 0.20, 0.35, 0.50, 0.70, 0.90`,
+`beta = 0, 0.05, 0.10, 0.20, 0.35, 0.50`, and
+`phi = 0.80, 0.90, 0.95, 0.98, 1.00`. This is a development search grid, not a
+claim that these values are optimal operating parameters. The loss averages
+per-run MSE within each profile, then weights the four profiles equally;
+port/window errors are pooled within their workload, not counted as independent
+runs. Exact ties prefer less damping, then smaller alpha/beta. `phi=1` remains
+eligible; the grid does not force damping. The report retains every candidate
+and a train-selected undamped reference with separately recalibrated intervals.
+
+After parameter selection, absolute-residual split-conformal radii are computed
+anew on calibration runs at nominal coverage 0.90. Original pilot radii are
+never borrowed. Reported calibration coverage is in-sample descriptive coverage,
+not held-out coverage or a formal operational guarantee for dependent traces.
+Observed timestamp spacing remains in provenance: horizons are sample-step
+forecasts with nominal two-second sampling, not resampled exact-time targets.
+Lower forecast MSE does not by itself establish better SLA anticipation.
+
+The tool requires all twelve v1 runs and an exact reproduction of the original
+campaign summary. Protocol/model/CSV/summary and code hashes are verified before
+and after fitting. It saves a development specification, model and report only
+to a **new sibling** `qos-damped-development*` directory; source directories and
+existing output are refused. `qos_damped_holt.py` uses the distinct type
+`damped_holt_qos_multihorizon`, rejected by the native Holt loader. No runtime
+registration, traffic, network calls, threshold/persistence tuning, LLM, or
+actuation is performed. No dependencies beyond the existing Python standard
+library are required. `promotion_eligible=false`, `deployment_eligible=false`
+and `test_evaluated=false` remain mandatory. A separately frozen campaign on
+newly collected traces is the next evaluation phase, not part of this command.
+
+```bash
+python3 train_qos_damped_holt_model.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v1/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v1/campaign" \
+  --output "$PWD/experiments/results/qos-damped-development-v1"
+```
+
+The console contains eight lines. Training/calibration provenance, full grid
+results and limitations remain in `qos-damped-holt-evaluation.json` and
+`development-spec.json`; no prospective-test metrics are fabricated.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

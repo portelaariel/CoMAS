@@ -39,10 +39,12 @@ required_files=(
   scripts/collect_qos_validation_campaign_v2.py
   scripts/recover_qos_runtime.py
   qos_holt.py
+  qos_damped_holt.py
   qos_telemetry.py
   sla_risk.py
   sla_episode_evaluation.py
   train_qos_holt_model.py
+  train_qos_damped_holt_model.py
   train_offline_model.py
   prepare_cicddos2019.py
   evaluate_offline_model.py

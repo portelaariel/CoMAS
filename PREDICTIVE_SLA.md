@@ -610,6 +610,89 @@ operational safety or SLA protection. Independent test, promotion and deployment
 flags stay false. A separately frozen evaluation on new traces is still required;
 no runtime, LLM, ETCD, new traffic or preventive action occurs here.
 
+## Prospective v3: fixed selected-warning model versus original Holt
+
+`predictive_sla_validation_v3.py` freezes the **existing** warning-selected
+artifact and original coverage90 Holt for twelve new workload runs (four
+profiles, three rotated repetitions). It copies both model files byte-for-byte;
+it does not select parameters again, fit, recalibrate or deploy either model.
+The .80 threshold, two adjacent horizons, one-window activation, two-window
+clearing and original sustained-episode definition/matching remain unchanged.
+Both forecasters receive the same two correlated port series with per-run state
+reset and the same priming/unscored tails. Observed episode identities must
+coincide, but point forecasts, intervals and warning decisions need not.
+
+The original v2 summary must reproduce its collected data exactly, even if
+its criteria were `NOT_PASSED`. The warning-development receipt must match the
+saved best feasible train-only selection and original v1 whole-run lineage.
+Old pilot/v1/v2 data, protocols, models, receipts and analysis code are protected
+by hashes; a v3 protocol must be frozen after development and the v2 collection
+ended. Known previous CSVs cannot be reused as v3. New files are validated for
+checksums, post-freeze timestamps, delivery/quality and non-overlapping run
+intervals. Hashes prove artifact consistency, not independent experiments or
+cryptographic attestation of genuine collection. Shared hardware, repeated
+profiles and correlated ports still limit generalization claims.
+
+```bash
+python3 predictive_sla_validation_v3.py freeze \
+  --source-protocol "$PWD/experiments/results/qos-prospective-v2/protocol.json" \
+  --source-campaign "$PWD/experiments/results/qos-prospective-v2/campaign" \
+  --development-root "$PWD/experiments/results/qos-warning-development-v1" \
+  --output "$PWD/experiments/results/qos-prospective-v3"
+
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v3.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v3/protocol.json" \
+  --preflight-only
+```
+
+Freezing prints five lines; preflight prints one. If the development directory
+has a different suffix, use the existing directory containing the three saved
+warning artifacts; do not refit it to proceed. All output targets must be new.
+V3 resides in a `qos-prospective-v3*` sibling directory. Freeze/evaluation are
+offline; the separate collector requires the Linux testbed and explicit traffic
+opt-in. Only after preflight is READY, run in a persistent session:
+
+```bash
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v3.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v3/protocol.json" \
+  --output "$PWD/experiments/results/qos-prospective-v3/campaign" \
+  --allow-lab-traffic
+```
+
+The collection uses the unchanged shadow-runtime safety checks, permanent
+calibration forwarding rules, owned traffic/qdisc cleanup and shared v1/v2/v3
+lock. It must not run concurrently with other workloads. It saves only new
+campaign files, refuses resumes/overwrites, and preserves partial artifacts if
+interrupted. Nominal offered traffic lasts 29.8 minutes, plus warmup/cleanup and
+evaluation; this is not a runtime ETA. Neither forecasting artifact is loaded
+into the live decision path, and no LLM, ETCD risk publication or preventive
+actuation is introduced by this phase.
+
+`campaign/campaign-summary.json` separates data completion from criteria
+approval. The six existing criteria are applied to both variants separately;
+top-level `criteria_status` and `checks` concern `selected_warning90` only.
+`original_holt90` is the paired reference, not a mandatory correctness oracle
+for a different forecaster. Reports retain candidate/active confusion, WATCH,
+strict episode anticipation, unmatched/censored/late alarms, per-run/profile
+metrics, conditional timestamp-based lead times, per-horizon forecast errors
+and empirical interval coverage, plus paired lost/gained episodes.
+Completion with failed criteria returns exit code 3; incomplete/invalid data
+returns 2; complete data passing the primary criteria returns 0. None of these
+states enables deployment or automatic promotion. A primary-model PASS alone
+does not prove superiority, calibrated uncertainty guarantees, safe preventive
+actions or SLA protection; no statistical superiority test is performed.
+
+Re-evaluation never overwrites the official summary and cannot alter policy:
+
+```bash
+python3 predictive_sla_validation_v3.py evaluate \
+  --protocol "$PWD/experiments/results/qos-prospective-v3/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v3/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v3/campaign-review-v1.json"
+```
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

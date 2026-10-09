@@ -34,6 +34,7 @@ required_files=(
   predictive_sla_validation.py
   predictive_sla_validation_v2.py
   predictive_sla_validation_v3.py
+  predictive_sla_horizon_sensitivity.py
   predictive_sla_diagnostics.py
   predictive_sla_damping_study.py
   predictive_sla_damped_replay.py

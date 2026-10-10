@@ -864,6 +864,63 @@ false, even if all warning criteria pass. Operational timing needs a separate,
 instrumented shadow integration followed by its own authority-dry-run/canary;
 the LLM is not placed in this campaign's critical path.
 
+## Supplementary v4: fresh existing-alert coverage (post-hoc)
+
+`predictive_sla_coverage_diagnostics.py` describes why an eligible v4 episode
+has no **new** matched activation. It does not change the official one-to-one
+matcher, observed threshold or episode clearing, model, policy, six criteria,
+false alarms or `NOT_PASSED` result. The official summary must reproduce exactly
+under the byte-frozen v4 evaluation before a supplement can be written.
+
+Each eligible episode receives one disjoint category:
+
+- `NEW_ACTIVATION_ANTICIPATED`: retain the official timestamp match, even if
+  the latest forecast has since cleared.
+- `EXISTING_ALERT_FRESH_COVERAGE`: no new official match, but the immediately
+  preceding acquired sample contains a candidate and an active alert with a
+  recorded activation and continuous state. Its age must be within the existing
+  frozen data-quality maximum gap (5 s).
+- `NO_FRESH_PRE_ONSET_ALERT`: the latest evaluation is assessable but has no
+  renewed candidate and active alert. This does not assert that no earlier
+  alert ever existed.
+- `UNASSESSABLE`: pre-onset evaluation, freshness, activation provenance or
+  continuity is unavailable. Missing evidence never becomes zero or coverage.
+
+Ineligible episodes remain explicit and outside the eligible denominator.
+An earlier matched warning is not lost merely because its latest candidate has
+cleared. Conversely, a retained active flag without a fresh candidate earns no
+additional coverage. A candidate first seen at onset, including a blocked
+preventive entry, cannot anticipate that episode. Exact observed samples around
+the boundary remain recorded; there is no rounding, smoothing or hysteresis
+change to merge retrospectively inconvenient episodes.
+
+Run offline on the existing completed campaign; no sudo, traffic, topology
+restart, LLM or refitting is required:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+python3 predictive_sla_coverage_diagnostics.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v4/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v4/campaign" \
+  --output "$PWD/experiments/results/qos-prospective-v4/coverage-diagnostics-v1.json"
+```
+
+The console prints at most eight lines; complete per-episode evidence and
+profile counts stay in JSON. Only a new `coverage-diagnostics*.json` directly
+beside the v4 protocol is allowed. Existing outputs, symlinks, incomplete
+campaigns, changed code/model/CSV/protocol and divergent official summaries are
+refused; no source is repaired or overwritten. Hashes are checked before and
+after analysis, including earlier protected sources and the analysis code.
+
+The combined `documented_warning_or_fresh_existing_alert` count is explicitly
+**post-hoc and descriptive**, not a replacement anticipation rate, new
+independent warning or preventive success. Latest-renewal/alert age is not new
+activation lead time or time available for action. Control/unmatched/raw-window
+FP metrics and strict lead times are preserved. Consensus, authority and action
+latency remain `NOT_MEASURED`; promotion, deployment and SLA protection remain
+false. A passing supplementary coverage count never changes v4 acceptance.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

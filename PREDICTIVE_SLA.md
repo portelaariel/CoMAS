@@ -738,6 +738,52 @@ no statistical superiority is claimed, and promotion/deployment remain false.
 Any gate change proposed from these inspected traces needs a newly frozen
 prospective validation, not a relabeling of v3 as a successful test.
 
+## Post-hoc v3 separation: new preventive entry and observed crossings
+
+`predictive_sla_preventive_entry_study.py` reads and fully reproduces the saved
+one/two-horizon sensitivity study before evaluating another **post-hoc** rule.
+For each frozen model's one-horizon signal, a new forecast alert may start only
+while the current observed utilization is strictly below the original .80
+threshold. At or above .80, new entry is inhibited; no sample or crossing is
+discarded. Already-active forecast alerts retain the original raw forecast
+renewal and two-window clearing. An observed breach alone cannot clear an
+existing alert. The rule does not change live code, agents or authority gates.
+
+An independent, past-only observed channel records **all** raw samples, including
+priming/unscored tails: instantaneous threshold breaches, confirmation after the
+original two consecutive breach samples, and clearing after two below-threshold
+samples. Confirmation is not backdated for decisions. The offline matcher still
+uses the unchanged retrospective onset and strict timestamp matching. A
+below-threshold entry can still be late relative to an already-confirmed episode
+or unmatched; it is not automatically labeled successful anticipation.
+
+This is a stateful counterfactual replay, not deletion of the old above-threshold
+activation records. A blocked alarm may start later if the forecast remains high
+after the observed pulse falls. Reports preserve these added/removed activations,
+paired episode losses/gains, missed/late/control/unmatched/censored alarms and
+conditional lead times. Raw forecasts, calibrated intervals, candidates, WATCH,
+scored windows and observed-future labels remain identical. Consequently
+`raw_FP` stays unchanged: fewer preventive alarms would not prove improved
+forecast accuracy or reactive protection. Crossings are not declared harmless.
+
+```bash
+python3 predictive_sla_preventive_entry_study.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v3/protocol.json" \
+  --campaign-root "$PWD/experiments/results/qos-prospective-v3/campaign" \
+  --source-study "$PWD/experiments/results/qos-prospective-v3/horizon-sensitivity-v1.json" \
+  --output "$PWD/experiments/results/qos-prospective-v3/preventive-entry-v1.json"
+```
+
+The output is eight lines. The saved sensitivity JSON must be sealed, unchanged,
+and reproduce all verified results; a different implementation commit is allowed
+and both commits are recorded. All earlier code/data/models/results remain
+hash-protected. Only a new `preventive-entry*.json` directly beside the v3
+protocol is accepted; overwrites, symlinks and source/campaign targets are
+refused. Exit 0 indicates diagnostic completion only. Official v3 `NOT_PASSED`
+is preserved, `selected_variant=NONE`, and no fit, traffic, LLM, deployment or
+promotion occurs. Any proposed new rule needs a freshly frozen prospective test;
+the remaining fast-ramp forecast miss is not automatically resolved by this rule.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

@@ -39,6 +39,8 @@ required_files=(
   predictive_sla_preventive_entry_study.py
   predictive_sla_diagnostics.py
   predictive_sla_coverage_diagnostics.py
+  predictive_sla_shadow.py
+  predictive_sla_shadow_protocol.py
   predictive_sla_damping_study.py
   predictive_sla_damped_replay.py
   scripts/collect_qos_validation_campaign.py

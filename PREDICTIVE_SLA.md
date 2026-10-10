@@ -5,6 +5,110 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Online timing pilot: isolated predictive shadow agents
+
+`predictive_sla_shadow.py` now provides a bounded, opt-in online timing pilot.
+It copies the byte-frozen `selected_warning90` model from v4 and consumes
+`/predictor/qos` in two separate local processes, one per domain. The existing
+CoMAS DDoS agents, predictor service, authority gate and FlowBlocker remain
+unchanged. These are **experimental predictive sidecars**, not deployment of
+a validated preventive defense. The source v4 campaign remains `NOT_PASSED`
+if originally so; its missing warning is not fixed by instrumentation.
+
+The explicitly mapped shared subject is the link `s2:4--s3:3`, observed through
+`192.168.10.10/2:4` and `192.168.11.10/3:3`, each with directional capacity
+100 Mbit/s. The fixed policy is v4: one forecast horizon, one activation
+window, current value below .80 for **new** entry, two non-candidates to clear.
+Existing alerts continue their forecast renewal above the observed threshold,
+but a currently breached sample votes `OBSERVE`, not preventive `PREVENT`.
+
+Valid samples update Holt once per distinct timestamp; duplicate REST polls
+never become additional observations. Invalid quality, stale/future or
+incompatible samples and irregular/missed cadence reset model and persistence.
+The native latest-sample endpoint has no catch-up history: the sidecar does
+not silently interpolate a skipped sample. New generations must prime again.
+An invalid quality marker publishes an `ABSTAIN`; an unsafe runtime or
+transport/contract error stops the worker and the launcher stops its peer.
+There is no fallback to LLM, authority or actuation.
+
+With `--allow-shadow-publication`, risk evidence and predictive proposals are
+written only below `/comas/experimental/predictive-sla-shadow/<unique-run>/`.
+Each process reads the latest committed pair for that exact link. Matching
+model/policy/source identity, observation-based five-second expiry and at most
+two seconds of observation skew are required. This is bounded-time
+corroboration, **not** proof of exact episode/window equality or independent
+votes. Outcomes include `SHADOW_PREVENT_AGREED`, `DISAGREED`, `OBSERVE`,
+`WAITING_PROPOSALS` and `INSUFFICIENT_EVIDENCE`. Even agreement always has
+`authorized=false`, `authority_requested=false`, `actuation_requested=false`.
+Two separate writes can briefly expose a new risk with its old proposal;
+hash mismatch makes that snapshot insufficient, not agreement.
+
+The local [ETCD v3 HTTP/JSON gateway](https://etcd.io/docs/v3.5/dev-guide/api_grpc_gateway/)
+uses base64 keys/values and a version-zero transaction to reserve a unique
+run marker. Preflight uses only status, telemetry and range reads; it does not
+grant leases or publish anything. The launcher writes four latest evidence
+keys plus one marker per run. Expiry is checked by readers, not implemented
+with ETCD leases; these small isolated keys remain after exit. No key is
+deleted and no existing DDoS namespace or claim is touched. Hashes check
+structural consistency, not authentication of malicious peers. Only a
+loopback laboratory gateway without additional credentials is supported.
+
+Each new run writes exclusive per-domain NDJSON journals and a compact
+`shadow-summary.json`. Journals preserve the original observation timestamp,
+REST start/receipt, forecast completion, risk/proposal publication ack,
+peer-snapshot receipt and consensus completion, including the peer evidence.
+Each successful ack is saved immediately, even if a later write fails.
+Durations use process-local monotonic clocks; observation ages use the shared
+host wall clock. A client ack bounds observed commit availability; it is not
+the ETCD server's precise commit timestamp. Counts concern changed evidence
+snapshots, not independent decisions or attacks.
+
+Neither observed future onsets nor preventive actions are evaluated yet.
+`deadline_feasibility=UNKNOWN` and `sla_protection_established=false` remain
+explicit. Authority, actuation and LLM latencies are null (`NOT_MEASURED`),
+not zero. The previous CSV lead time cannot be substituted for online
+publication-to-breach lead. A later fresh trace and offline matching of its
+actual onsets to these availability timestamps are needed for a deadline
+assessment. This pilot does not refit a model, relax v4 criteria, generate
+traffic, alter a qdisc or forwarding rule, or restart a collector/topology.
+
+On the Ubuntu testbed, first freeze and run the read-only preflight:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+python3 predictive_sla_shadow.py freeze \
+  --protocol "$PWD/experiments/results/qos-prospective-v4/protocol.json" \
+  --output "$PWD/experiments/results/qos-online-shadow-v1"
+
+python3 predictive_sla_shadow.py preflight \
+  --config "$PWD/experiments/results/qos-online-shadow-v1/shadow-config.json"
+```
+
+The predictors must still have QoS enabled with a 2 s polling interval,
+`AUTO_MITIGATE=false`, `DRY_RUN=true`, `AGENTIC_MODE=shadow` and live actuation
+disabled. Preflight fails if current telemetry is missing, incompatible or
+old, or the gateway is unreachable. Diagnose that condition before running;
+do not restart the stopped original collectors that mount protected history.
+The default gateway is `http://127.0.0.1:2379`; an explicitly different local
+port must be selected during freeze, not by editing the sealed config.
+
+After a successful preflight, a **60-second idle smoke run** is:
+
+```bash
+python3 predictive_sla_shadow.py run \
+  --config "$PWD/experiments/results/qos-online-shadow-v1/shadow-config.json" \
+  --duration-s 60 \
+  --allow-shadow-publication
+```
+
+An idle run should mainly show `OBSERVE` after priming. It verifies connectivity
+and timing mechanics, not warning efficacy or preventive agreement under load.
+The launcher prints the exact new result directory; no tmux/environment
+variable from a previous session is required. Sources/results are never
+overwritten; use a new sibling `qos-online-shadow-*` for a new freeze. Reusing
+the same config creates a new unique run rather than resuming old evidence.
+
 ## Phase 1: deterministic shadow contract
 
 `sla_risk.py` implements the first phase without changing the running CoMAS

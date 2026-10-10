@@ -5,6 +5,77 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Online timing pilot v2: atomic risk/proposal publication
+
+`predictive_sla_shadow_v2.py` corrects the intermediate-state exposure of the
+v1 timing pilot without modifying its code, config or recorded results.
+Freeze verifies an existing v1 config, copies its exact model, retains the
+same policy, five-second observation-based expiry, two-second maximum skew
+and forecasting/persistence implementation, and pins the hashes of existing
+v1 run artifacts. A separate sibling directory and ETCD namespace are used:
+`/comas/experimental/predictive-sla-shadow-v2/<unique-run>/`. Official v4
+criteria/results, including `NOT_PASSED`, are preserved; this is still an
+isolated experimental shadow pilot, not preventive deployment.
+
+Each domain prepares a proposal from its new risk locally and publishes both
+distinct keys with one `/v3/kv/txn` containing two puts. The
+[ETCD transaction API](https://etcd.io/docs/v3.5/learning/api/#transaction)
+commits those writes atomically at one revision. A single range response
+retains the actual `mod_revision` for each key: a reader requires matching,
+positive risk/proposal revisions not exceeding the snapshot revision, in
+addition to the existing hashes, identity, model, policy, quality and time
+checks. Atomicity is **per domain**, not across both domains. Different
+observation times, absent domains, priming, expiry and genuine disagreement
+remain possible. All agreement still has `authorized=false`,
+`authority_requested=false` and `actuation_requested=false`.
+
+The proposal contains its preparation timestamp, not a fabricated publication
+ack. The joint ack and commit revision are journaled only after the gateway
+response. `pair_publication_ms` is one request's elapsed time; it must not be
+counted twice as independent risk and proposal durations. The observation-to-
+pair-ack and oldest-observation-to-consensus ages are recorded separately.
+As before, client receipt is not the exact server commit timestamp. A
+timeout can occur before or after commit: the attempted pair and
+`PAIR_PUBLICATION_UNCONFIRMED` are preserved with `commit_outcome=UNKNOWN`,
+without automatic retry, claimed rollback, authorization or fake zero latency.
+The worker stops and the launcher stops its own peer. A lost acknowledgement
+does not imply a partial ETCD transaction.
+
+Domain summaries also include `consensus_reason_counts`. Priming/invalid
+quality abstentions are identified as `PREDICTION_UNAVAILABLE` with explicit
+per-domain reasons, separately from revision/hash errors. Counts are changed
+evidence snapshots, not independent incidents. Neither disappearance of
+intermediate pairs nor a shorter publication time establishes warning
+efficacy: deadline feasibility remains `UNKNOWN`, SLA protection remains
+unestablished, and authority/actuation/LLM timings remain null.
+
+On the Ubuntu testbed, preserve `qos-online-shadow-v1` and use a new directory:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+python3 predictive_sla_shadow_v2.py freeze \
+  --source-config "$PWD/experiments/results/qos-online-shadow-v1/shadow-config.json" \
+  --output "$PWD/experiments/results/qos-online-shadow-v2"
+
+python3 predictive_sla_shadow_v2.py preflight \
+  --config "$PWD/experiments/results/qos-online-shadow-v2/shadow-config.json"
+
+python3 predictive_sla_shadow_v2.py run \
+  --config "$PWD/experiments/results/qos-online-shadow-v2/shadow-config.json" \
+  --duration-s 60 \
+  --allow-shadow-publication
+```
+
+Preflight is read-only. Use the existing shadow collectors/topology and do
+not generate additional traffic for the first idle smoke run. New freezes
+refuse existing output directories; subsequent runs reuse the sealed config
+but always create a fresh unique run. The launcher prints the exact result
+directory and a compact completion line including `atomic_pairs=true`.
+Use that new v2 report for timing: old v1 reports remain v1, including their
+two-write intermediate-state observations. No faster latency is assumed
+before measuring the new runtime on the testbed.
+
 ## Online timing pilot: isolated predictive shadow agents
 
 `predictive_sla_shadow.py` now provides a bounded, opt-in online timing pilot.

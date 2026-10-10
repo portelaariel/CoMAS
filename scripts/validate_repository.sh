@@ -34,6 +34,7 @@ required_files=(
   predictive_sla_validation.py
   predictive_sla_validation_v2.py
   predictive_sla_validation_v3.py
+  predictive_sla_validation_v4.py
   predictive_sla_horizon_sensitivity.py
   predictive_sla_preventive_entry_study.py
   predictive_sla_diagnostics.py
@@ -42,6 +43,7 @@ required_files=(
   scripts/collect_qos_validation_campaign.py
   scripts/collect_qos_validation_campaign_v2.py
   scripts/collect_qos_validation_campaign_v3.py
+  scripts/collect_qos_validation_campaign_v4.py
   scripts/recover_qos_runtime.py
   qos_holt.py
   qos_damped_holt.py

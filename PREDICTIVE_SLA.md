@@ -784,6 +784,86 @@ is preserved, `selected_variant=NONE`, and no fit, traffic, LLM, deployment or
 promotion occurs. Any proposed new rule needs a freshly frozen prospective test;
 the remaining fast-ramp forecast miss is not automatically resolved by this rule.
 
+## Prospective v4: fixed preventive entry on new shadow traces
+
+`predictive_sla_validation_v4.py` freezes the rule examined in
+`preventive-entry-v1.json` as a **candidate for new validation**, not a promoted
+policy. It first reproduces that entire study from the unchanged official v3
+data. Both original and selected forecast artifacts are copied byte-for-byte;
+no parameter search, fit, recalibration or model deployment occurs. A failed v3
+remains failed. All source protocols, studies, models, CSVs and run records are
+hash-protected; pilot/v1/v2/v3 CSV hashes are excluded from the new campaign.
+
+Both models use the same one-horizon signal, one-window activation, two-window
+forecast clearing and **new entry only when observed utilization is below .80**.
+Already-active alerts keep their original renewal/clearing rules. The observed
+channel records all current crossings and confirms sustained episodes after two
+breach samples. Strict timestamp matching, two-sample episode clearing and the
+original two-adjacent-observed-horizon window labels are unchanged. Thus removing
+an activation cannot silently improve raw forecast FP metrics. Ungated reference
+results and paired removed/added activations, losses/gains and lead changes are
+preserved on each new series.
+
+All **six acceptance criteria** from v2/v3 remain unchanged, including anticipating
+every eligible ramp episode and no control/unmatched/censored activations.
+Acceptance concerns the primary `selected_warning90`; the native forecaster has
+separate checks. No episode known to be missed in v3 is excluded, no lower lead
+threshold is selected from inspected results, and no superiority test is claimed.
+The 12 new workloads share a testbed and two correlated ports: freshness of the
+traces does not guarantee statistical independence or generalization.
+
+Freeze and run a read-only runtime preflight on the Linux server:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+python3 predictive_sla_validation_v4.py freeze \
+  --source-protocol "$PWD/experiments/results/qos-prospective-v3/protocol.json" \
+  --source-campaign "$PWD/experiments/results/qos-prospective-v3/campaign" \
+  --entry-study "$PWD/experiments/results/qos-prospective-v3/preventive-entry-v1.json" \
+  --output "$PWD/experiments/results/qos-prospective-v4"
+
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v4.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v4/protocol.json" \
+  --preflight-only
+```
+
+The freeze prints five lines and requires a new sibling `qos-prospective-v4*`
+directory. Preflight prints one line and does not start traffic. Existing files,
+symlinks, changed old sources/model/code and incomplete old campaigns are refused.
+After `preflight=READY`, collection requires explicit laboratory-traffic opt-in:
+
+```bash
+sudo -v
+python3 scripts/collect_qos_validation_campaign_v4.py \
+  --protocol "$PWD/experiments/results/qos-prospective-v4/protocol.json" \
+  --output "$PWD/experiments/results/qos-prospective-v4/campaign" \
+  --allow-lab-traffic
+```
+
+Run the collection in a persistent terminal session; the planned profiles contain
+approximately 29.8 minutes of traffic plus setup/cleanup. The shared v1-v4 lock
+prevents concurrent campaigns. Collection reuses the original safety preflight,
+owned-process/tagged-qdisc cleanup, checks the frozen protocol between runs, and
+refuses old/overlapping/pre-freeze/checksum-invalid traces. Never overwrite or
+silently resume an existing partial campaign: preserve it and use a new
+`campaign-*` name. Exit 0 means completed with warning criteria passed, 3 means
+completed with criteria `NOT_PASSED`, 2 means invalid/incomplete/error, and 130
+means interrupted with partial artifacts preserved.
+
+The summary contains `models.*.lead_time_s` with minimum/mean/maximum and all
+matched episode lead times; missed/late/unmatched/control/censored outcomes are
+explicit. **Consensus, authority, actuation and LLM timing remain NOT_MEASURED
+(null, not zero)**. Forecasts are replayed offline after collecting shadow
+telemetry: the existing framework has no predictive SLA consensus/actuator path
+to time. CSV acquisition-to-retrospective-onset lead is not an online alert
+publication deadline or proof that an action fits within it. The report marks
+deadline feasibility `UNKNOWN`, SLA protection false and promotion/deployment
+false, even if all warning criteria pass. Operational timing needs a separate,
+instrumented shadow integration followed by its own authority-dry-run/canary;
+the LLM is not placed in this campaign's critical path.
+
 ## Initial measurable scope
 
 The first online experiment should use one metric and one reversible action:

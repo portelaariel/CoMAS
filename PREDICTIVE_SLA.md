@@ -5,6 +5,78 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Atomic shadow diagnostics: request timing and acknowledgement validation
+
+`predictive_sla_shadow_diagnostics.py` instruments the frozen v2 worker without
+editing the v1/v2 sources, configs or run artifacts. Freeze starts from a verified
+v2 config, pins existing v2 artifacts (including failed runs), copies the exact
+model and uses a new sibling `qos-online-shadow-v2-diagnostics*` directory. Each
+run uses a new unique v2 experimental namespace. Forecasting, persistence, the
+one-second HTTP socket timeout, five-second observation expiry, policy and
+authority/actuation boundaries remain unchanged; official v4 stays `NOT_PASSED`.
+
+The original HTTP client is called once, with no retry, proxy or redirect changes.
+The worker's HTTP/store bindings are adapted only inside its own spawned process
+and restored afterwards; source files are never rewritten. Preflight uses the
+same safety checks and performs reads only. Its timing traces, the launcher's
+namespace-reservation trace and each domain's trace are recorded separately.
+Bodies are not duplicated in the transport journal: it records their hash/size,
+operation, method, endpoint, request ID, wall-clock timestamps, unchanged timeout,
+monotonic elapsed time and exception type. The existing decision journal still
+retains the original attempted pair.
+
+`REQUEST_FINISHED: HTTP_JSON_RECEIVED` means the complete HTTP/JSON client call
+returned, **not** that a transaction was acknowledged correctly. Only the
+unchanged v2 store checks can produce `STORE_OPERATION_FINISHED: ACK_VALIDATED`.
+Malformed acknowledgement metadata instead produces `VALIDATION_REJECTED` with
+unknown write outcome. Timeouts record actual elapsed duration, `TIMEOUT` and
+`commit_outcome=UNKNOWN`; they still stop the worker and its owned peer. A local
+rejection proven to occur before forwarding is distinguished as `NOT_SENT`.
+The same rule applies to namespace reservation. A later read of an exact pair at
+one revision does not repair the original timeout or establish timely completion.
+
+The diagnostic `shadow-summary.json` includes `transport_summary` per domain,
+preflight and launcher: successful JSON-receipt durations and error durations are
+separate, validated pair acknowledgements are counted separately, and unfinished
+requests retain null elapsed time and unknown write outcome. A missing domain
+summary has `summary_available=false`, not an invented zero-publication counter.
+`diagnostic_traces_complete` requires complete traces for all roles and matching
+worker/trace acknowledgement counts; missing traces cannot produce a completed
+diagnostic even if a worker claims completion.
+The prior complete trace lines survive interruption; a partial final line is not
+treated as a completed request. The summary reports failures even if they occur
+during preflight or marker reservation, before either worker starts.
+
+Instrumentation adds client/journal overhead. HTTP and complete store-operation
+durations overlap; do not add them, attribute them solely to ETCD server processing
+or interpret the socket timeout as an end-to-end deadline. These diagnostics locate
+the failing operation, not whether CPU, scheduling, disk, transport or ETCD consensus
+caused it. No timeout relaxation, automatic recovery, LLM decision, authority or
+actuation is introduced. Deadline feasibility remains `UNKNOWN`.
+
+First run an idle diagnostic, using the existing collectors and topology:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+DIAGNOSTIC_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-$(date -u +%Y%m%dT%H%M%SZ)"
+
+python3 predictive_sla_shadow_diagnostics.py freeze \
+  --source-config "$PWD/experiments/results/qos-online-shadow-v2/shadow-config.json" \
+  --output "$DIAGNOSTIC_ROOT" &&
+python3 predictive_sla_shadow_diagnostics.py preflight \
+  --config "$DIAGNOSTIC_ROOT/shadow-config.json" &&
+python3 predictive_sla_shadow_diagnostics.py run \
+  --config "$DIAGNOSTIC_ROOT/shadow-config.json" \
+  --duration-s 60 \
+  --allow-shadow-publication
+```
+
+The conditional chain stops at the first error. The launcher prints the exact
+`shadow_run` directory and a compact failure line with operation, status, elapsed
+milliseconds and commit outcome when an HTTP request fails. Keep unsuccessful
+runs; do not refreeze into an existing directory or restart protected collectors.
+
 ## Online timing pilot v2: atomic risk/proposal publication
 
 `predictive_sla_shadow_v2.py` corrects the intermediate-state exposure of the

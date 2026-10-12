@@ -5,6 +5,64 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Controlled online fast ramp: unchanged model, separate pilot
+
+`predictive_sla_shadow_fast_ramp.py` freezes a **new** opt-in pilot from the same
+verified idle diagnostic, selecting the original v4 `fast-ramp` workload instead
+of the slow ramp. It copies the exact model and leaves thresholds, horizons,
+preventive-entry, activation/clearing, HTTP timeout, TTL and matching policies
+unchanged. The profile is 20 Mbit/s for 40 seconds, 40/60/80/100 Mbit/s for four
+seconds each, 100 Mbit/s for 40 seconds, then 20 Mbit/s for 30 seconds: **126 seconds
+of workload and a 200-second shadow window** with the same startup/setup/tail
+reserves. It is not a new acceptance campaign, a model refit or a v4 promotion.
+
+Earlier slow-ramp sources, sealed plans, traces and results are not edited. The
+new protocol/receipt/report schemas and sibling directory prefix prevent using
+the old slow-ramp outputs as fast-ramp artifacts. The fast launcher starts its
+own `_collect` process with the existing guarded collector, shared lab lock and
+owned cleanup, and reuses the frozen slow pilot's startup/cleanup helpers and
+offline timing analyzer. All reused source hashes are pinned. No module globals
+are rebound. Both opt-ins remain mandatory; no production authority, claims,
+actuator or LLM is called. Do not run this concurrently with another workload.
+
+The report retains sampled onsets, strict new-activation matches, unmatched and
+censored activations, missing native samples, and the separately paired actual
+forecast/ack/agreement margins. A late agreement or missing agreement is retained,
+not repaired, discarded or classified as timely because the input sample preceded
+onset. `COMPLETED measurement=PAIRED` says the timing measurement completed, **not**
+that anticipation passed. If no sustained crossing is observed, timing remains
+insufficient; this is not a successful negative-control experiment. Stable and
+short-pulse controls require separate protocols and are not run by this pilot.
+Two port observations are correlated measurements of one physical run.
+
+On Ubuntu, use a new directory and the same completed idle source:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+IDLE_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-20261012T115144Z"
+FAST_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-fast-ramp-$(date -u +%Y%m%dT%H%M%SZ)"
+
+python3 predictive_sla_shadow_fast_ramp.py freeze \
+  --source-config "$IDLE_ROOT/shadow-config.json" \
+  --idle-run "$IDLE_ROOT/runs/93fceb8ca2834df4b2f1a3672c63a8db" \
+  --output "$FAST_ROOT" &&
+sudo -v &&
+python3 predictive_sla_shadow_fast_ramp.py preflight \
+  --protocol "$FAST_ROOT/protocol.json" &&
+python3 predictive_sla_shadow_fast_ramp.py run \
+  --protocol "$FAST_ROOT/protocol.json" \
+  --allow-lab-traffic \
+  --allow-shadow-publication
+```
+
+Allow approximately four minutes. Keep `pilot/paired-timing.json` and the journals;
+share only final status and per-domain margins/counts. Stop at any error. Do not
+retry into the same directory, retune parameters, widen timeouts, delete prior
+results or restart the testbed automatically. Physical crossing time and real
+authority/action deadline feasibility remain unknown; the original v4 remains
+`NOT_PASSED` irrespective of this pilot's measurements.
+
 ## Controlled online slow ramp: paired shadow timing
 
 `predictive_sla_shadow_ramp.py` adds one laboratory-only slow ramp, not a new

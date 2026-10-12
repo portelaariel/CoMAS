@@ -44,6 +44,8 @@ required_files=(
   predictive_sla_shadow_v2.py
   predictive_sla_shadow_protocol_v2.py
   predictive_sla_shadow_diagnostics.py
+  predictive_sla_shadow_ramp.py
+  predictive_sla_shadow_ramp_analysis.py
   predictive_sla_damping_study.py
   predictive_sla_damped_replay.py
   scripts/collect_qos_validation_campaign.py

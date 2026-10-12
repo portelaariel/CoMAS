@@ -5,6 +5,91 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Controlled online slow ramp: paired shadow timing
+
+`predictive_sla_shadow_ramp.py` adds one laboratory-only slow ramp, not a new
+acceptance campaign or deployment. Freeze requires the verified config and exact
+run directory of a completed, activation-free idle diagnostic. It pins those
+existing artifacts, copies the same model into another diagnostic config, and
+freezes the original v4 slow-ramp workload and collection settings. The 170-second
+profile starts at 20 Mbit/s for 40 seconds, steps through 30--100 Mbit/s for ten
+seconds each, holds 100 Mbit/s for twenty seconds, then returns to 20 Mbit/s for
+thirty seconds. The diagnostic window is 244 seconds including startup/setup/tail
+reserves; no model fitting, threshold change, timeout relaxation or v4 rewrite occurs.
+
+Read-only preflight checks the existing Mininet namespaces, addresses, persistent
+calibration rules, absence of DROP rules/shaping/foreign iperf processes, native
+shadow safety and fresh QoS, then runs the diagnostic read-only preflight. Runtime
+requires **both** `--allow-lab-traffic` and `--allow-shadow-publication`. Two sidecars
+must first publish fresh, confirmed forecast pairs and register `OBSERVE` while
+inactive and below the observed threshold. Traffic is not started for priming-only,
+failed or inconsistent startup. The collector uses the same per-user lab lock,
+tagged temporary HTB shaping and owned iperf process cleanup as earlier campaigns;
+it does not restart containers/topology, change switch rules or kill foreign traffic.
+
+The coordinator monitors shadow and collection together. If the shadow process
+exits during collection, it requests the collector's own graceful cleanup. It never
+SIGKILLs the collector mid-qdisc cleanup. Shadow interruption affects only the
+new session it created; uncertain cleanup blocks success and another run should
+not be started. One sealed plan permits one new `pilot` directory; existing output
+is refused and partial/failed artifacts are preserved. Collection and shadow logs
+are separate. No event is sent to production authority, claims, actuators or LLM.
+
+`predictive_sla_shadow_ramp_analysis.py` works offline on the new native CSVs and
+complete journals, checking their hashes, bindings, QoS delivery, frozen workload
+and cleanup receipt. It reuses the original two-sample sustained episode/clearing
+matcher and strict chronological one-to-one **new activation** matching. It records
+actual forecast-availability, publication-ack and agreement-receipt timestamps for
+the same sampled episode, instead of subtracting unrelated idle averages. The
+local activation's exact-pair agreement is distinguished from supplementary fresh
+joint-candidate witnesses: if a newer renewal rather than the activation pair was
+read, it is not falsely reported as that activation's exact acknowledgement chain.
+
+Supplementary joint timing uses the earliest unused recorded fresh agreement for
+each sampled port episode, with an input observation before onset within the fixed
+twelve-second horizon. It retains the first eligible witness even if delivery is
+late; it does not choose a later/better witness. Exact risk/proposal hashes and real
+pair revisions connect the received snapshot to the confirmed publication ledger.
+Duplicate observer views of one pair are deduplicated, but the two correlated ports
+still represent **one physical run**, not independent votes or trials. Local warning
+metrics and supplementary joint timing are separate and do not change v4 criteria.
+
+Margins are signed `sampled_onset_ns - actual_stage_timestamp`. A positive input
+lead can coexist with negative forecast/ack/agreement margins. A peer can read a
+committed pair before its writer receives the ACK: this is recorded, not rejected as
+a clock-order violation. Missing measurements remain null; no sustained crossing
+produces `INSUFFICIENT_EVIDENCE`, not a successful negative. Left/right censoring,
+unmatched local activations and native samples missed by the sidecar remain visible.
+Physical crossing time between counter windows, authority/action/LLM latency and
+real deadline feasibility remain unknown. `measurement=PAIRED` means the experiment
+was paired, **not** that all warnings were timely, v4 passed or SLA protection works.
+
+On the Ubuntu testbed, use the completed idle run explicitly and a new directory:
+
+```bash
+cd /home/ubuntu/sdn-ariel/comas-predictive-sla
+
+RAMP_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-ramp-$(date -u +%Y%m%dT%H%M%SZ)"
+
+python3 predictive_sla_shadow_ramp.py freeze \
+  --source-config "$PWD/experiments/results/qos-online-shadow-v2-diagnostics-20261012T115144Z/shadow-config.json" \
+  --idle-run "$PWD/experiments/results/qos-online-shadow-v2-diagnostics-20261012T115144Z/runs/93fceb8ca2834df4b2f1a3672c63a8db" \
+  --output "$RAMP_ROOT" &&
+sudo -v &&
+python3 predictive_sla_shadow_ramp.py preflight \
+  --protocol "$RAMP_ROOT/protocol.json" &&
+python3 predictive_sla_shadow_ramp.py run \
+  --protocol "$RAMP_ROOT/protocol.json" \
+  --allow-lab-traffic \
+  --allow-shadow-publication
+```
+
+Allow approximately four minutes. The last lines give port-episode counts and
+paired forecast/ack/agreement margins; keep the full `pilot/paired-timing.json`
+for provenance. Negative margins mean at/after sampled onset, not anticipation.
+If any step fails, stop and inspect the new pilot's logs rather than cleaning the
+testbed or changing frozen settings automatically.
+
 ## Atomic shadow diagnostics: request timing and acknowledgement validation
 
 `predictive_sla_shadow_diagnostics.py` instruments the frozen v2 worker without

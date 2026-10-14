@@ -5,6 +5,86 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Online stable and short-pulse controls: characterization, not a pass
+
+`predictive_sla_shadow_controls.py` freezes **one new pilot per profile**, from the
+same verified completed idle diagnostic. `--profile stable-low` uses the unchanged
+v4 workload of 20 Mbit/s for 40 seconds, 50 Mbit/s for 80 seconds, then 20 Mbit/s
+for 30 seconds. `--profile short-pulses` uses 20 Mbit/s for 40 seconds, four cycles
+of 110 Mbit/s for two seconds and 20 Mbit/s for eighteen seconds, then 20 Mbit/s for
+30 seconds. Each has 150 seconds of workload and a 224-second shadow window with
+the frozen startup/setup/tail reserves. No fitting, threshold, horizon, entry,
+activation/clearing, sampling, timeout, TTL or voting change occurs.
+
+The models, collectors, previous slow/fast pilots, v4 and their artifacts are not
+rewritten. New sibling directories must include the selected profile; sealed
+workloads, characterization policy and schemas prevent treating ramp outputs as
+control evidence. Both opt-ins are required, with the same fresh confirmed OBSERVE
+startup, native read-only preflight, shared lab lock, scoped processes and owned
+collector cleanup. The private collector CLI belongs to this new control module.
+No production authority, claims, actuator or LLM is called. Run profiles serially.
+
+`predictive_sla_shadow_control_analysis.py` reuses the unchanged native two-sample
+sustained episode and strict new-activation matcher. It validates confirmed exact
+pairs for **every** local reference evaluation, even a quiet one. A fully observed
+reference requires every native sample to have a FORECAST_READY sidecar evaluation;
+missing/skipped/priming evidence yields `INSUFFICIENT_EVIDENCE`, not zero alarms or
+a successful negative. Observed episodes, single-sample spikes, unmatched/late
+activations, incomplete twelve-second followup and outside-reference warnings
+remain visible. A nominal control that actually has a sustained crossing is reported
+as `OBSERVED_SUSTAINED_CROSSING`; the profile label never overrides actual evidence.
+
+Joint witnesses are deduplicated by the frozen exact proposal hashes and ETCD pair
+revisions, then classified per correlated port as pre-onset, late, already-onset,
+without a sustained episode within the observation-based twelve-second horizon,
+censored or outside the native reference. Renewed pair witnesses are **not**
+independent alarms, votes, actions or trials. Censoring/outside evidence is not
+silently counted as an unsupported warning or successful negative. Local activation
+counts and joint pair counts are reported separately. Exact actual availability
+margins remain signed; overlapping durations are not added and physical crossing
+times are unknown.
+
+`COMPLETED measurement=CONTROL_OBSERVED` means the measurement completed with full
+reference coverage, not that a control criterion passed. The observation can still
+be `PREVENTIVE_SIGNALS_WITHOUT_SUSTAINED_EPISODE`, `INCOMPLETE_WARNING_FOLLOWUP`,
+`OBSERVED_SUSTAINED_CROSSING` or `MIXED_OBSERVATIONS`. Even
+`NO_PREVENTIVE_SIGNALS_OBSERVED` is scoped to this observed pilot, not a specificity,
+false-alarm-rate, generalization, deadline or safety claim. Those rates remain null,
+promotion/deployment remain false and the original v4 remains `NOT_PASSED`.
+
+On Ubuntu, after updating the branch, collect the two profiles sequentially in
+new directories (approximately eight to ten minutes total):
+
+```bash
+(
+  cd /home/ubuntu/sdn-ariel/comas-predictive-sla || exit 1
+  IDLE_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-20261012T115144Z"
+
+  for PROFILE in stable-low short-pulses; do
+    CONTROL_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-control-${PROFILE}-$(date -u +%Y%m%dT%H%M%SZ)"
+
+    python3 predictive_sla_shadow_controls.py freeze \
+      --source-config "$IDLE_ROOT/shadow-config.json" \
+      --idle-run "$IDLE_ROOT/runs/93fceb8ca2834df4b2f1a3672c63a8db" \
+      --profile "$PROFILE" \
+      --output "$CONTROL_ROOT" || exit 1
+
+    sudo -v || exit 1
+    python3 predictive_sla_shadow_controls.py preflight \
+      --protocol "$CONTROL_ROOT/protocol.json" || exit 1
+    python3 predictive_sla_shadow_controls.py run \
+      --protocol "$CONTROL_ROOT/protocol.json" \
+      --allow-lab-traffic \
+      --allow-shadow-publication || exit 1
+  done
+)
+```
+
+Share only the final status, control observation and per-domain counts/coverage.
+Keep `pilot/control-observation.json`, the sealed receipt and complete journals.
+If any step fails, stop, preserve it and inspect the logs; do not overwrite an
+existing directory, automatically clean/restart the testbed or tune the policy.
+
 ## Controlled online fast ramp: unchanged model, separate pilot
 
 `predictive_sla_shadow_fast_ramp.py` freezes a **new** opt-in pilot from the same

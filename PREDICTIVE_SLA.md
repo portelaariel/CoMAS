@@ -5,6 +5,77 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Offline consolidation of the explicit shadow cohort
+
+`predictive_sla_shadow_report.py` creates a new JSON/Markdown report from existing
+files only. Mininet, controllers, ETCD, telemetry APIs, Ollama and sudo are **not**
+needed. It does not run traffic, fit/recalibrate models, change source results or
+call production authority/actuators. The default cohort names the twelve completed
+pilots (three per slow-ramp, fast-ramp, stable-low and short-pulses profile) and the
+known stopped stable-low attempt `20261014T194859Z` explicitly. It never selects
+the latest success, silently drops a failure or substitutes another directory.
+
+Freeze requires all declared folders and final receipts, validates the original
+frozen loaders, and seals an inventory of **all** files in each selected attempt,
+including failed/partial logs. It pins its own code and the reused frozen code.
+Other candidate pilot directories are refused rather than silently ignored; use
+repeatable `--extra-attempt DIRECTORY_NAME` to register an additional final attempt
+explicitly. Missing/incomplete receipts require inspection, not deletion or a
+fabricated outcome. The known thirteen entries cannot be removed by resealing an
+edited manifest. New report directories must be named `qos-shadow-characterization-*`
+directly under the results root; existing output is refused.
+
+Build checks the frozen inventory again, replays each completed pilot offline
+through its unchanged original evaluator, and requires exact equality with its
+existing sealed report. It verifies shared model/policy/subjects/lineage, distinct
+shadow UUIDs and native CSV hashes, and non-overlapping attempt intervals. A stopped
+attempt is retained with its original error, available domain/transport reports and
+null performance metrics; missing counters are not zero. A recorded timeout is not
+automatically treated as an established root cause or repaired by subsequent success.
+
+The summary separates physical pilot counts, correlated port episodes, actual
+availability margins, local activations, incomplete/censored evidence and joint pair
+witnesses. For short-pulses it binds journal samples to the native CSV timestamps and
+values and lists the actual measured windows overlapping each recorded pulse stage,
+their un-clipped utilization maxima and crossing counts. It does not invent a
+two-second interval if metadata is absent, infer an instantaneous peak or manufacture
+an acceptance/delivery pass from the profile name. Windows absent from a pulse remain
+explicitly insufficient. No p-value, false-alarm rate, specificity or independence
+claim is produced. The original v4 remains `NOT_PASSED` and deadline feasibility is
+`UNKNOWN`, regardless of observed positive sampled-onset margins.
+
+On Ubuntu, update the branch, then freeze and build a new report directory:
+
+```bash
+(
+  cd /home/ubuntu/sdn-ariel/comas-predictive-sla || exit 1
+  REPORT_ROOT="$PWD/experiments/results/qos-shadow-characterization-$(date -u +%Y%m%dT%H%M%SZ)"
+
+  python3 predictive_sla_shadow_report.py freeze \
+    --results-root "$PWD/experiments/results" \
+    --output "$REPORT_ROOT" || exit 1
+
+  python3 predictive_sla_shadow_report.py build \
+    --manifest "$REPORT_ROOT/manifest.json" || exit 1
+)
+```
+
+The new directory contains:
+
+- `manifest.json`: explicit cohort, hashes, policy, code and limitations.
+- `validation-summary.json`: replay-verified per-pilot/per-domain results, retained
+  failures, pulse evidence and descriptive profile summaries.
+- `validation-summary.md`: readable characterization, not an acceptance certificate.
+- `source-inventory.json`: absolute source paths and SHA256 provenance, including the
+  protected lineage and the stopped attempt.
+
+`status=CONSOLIDATED` means that artifact verification and consolidation completed,
+not that all attempts succeeded or prevention is safe. Source changes, mismatched
+replays, missing pilots, unregistered directories, reused evidence or uncertain
+identity stop report generation. Preserve partial output and investigate rather
+than overwriting sources, dropping failed attempts, tuning parameters or replaying
+traffic automatically. Source pilots are checked again before any summary is written.
+
 ## Online stable and short-pulse controls: characterization, not a pass
 
 `predictive_sla_shadow_controls.py` freezes **one new pilot per profile**, from the

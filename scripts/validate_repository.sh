@@ -50,6 +50,7 @@ required_files=(
   predictive_sla_shadow_controls.py
   predictive_sla_shadow_control_analysis.py
   predictive_sla_shadow_report.py
+  predictive_sla_shadow_alert_trace.py
   predictive_sla_damping_study.py
   predictive_sla_damped_replay.py
   scripts/collect_qos_validation_campaign.py

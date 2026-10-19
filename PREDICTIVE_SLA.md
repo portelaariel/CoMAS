@@ -5,6 +5,49 @@ detector to preventive SLA protection. The new path is independent from DDoS
 detection: it may reuse collectors and forecasting primitives, but it uses its
 own evidence, states, policy and actuator contracts.
 
+## Offline trace of one alert and its renewals
+
+`predictive_sla_shadow_alert_trace.py` reads one existing frozen pilot, requires an
+exact replay of its original sealed report, and follows an explicitly selected
+local activation through recorded active-state renewals. It stops at the first
+recorded clear, generation change, unexplained inactive state, next activation or
+journal end. A reset or missing clear is not labeled a clean ending. Missing native
+inputs, unassessed pairs, pairs with only indeterminate assessments, and observers
+without recorded followup through the last member pair's expiry remain incomplete
+evidence, not zero alarms. Source files and frozen analysis code remain unchanged.
+
+Every local evaluation is bound to its unique confirmed pair. All recorded snapshot
+assessments are revalidated within their recorded receipt/completion interval without
+inventing the exact assessment timestamp. The search includes matching pair receipts
+after the local clear and keeps duplicate observer views separate from the unchanged
+deduplicated joint witnesses. Initial-pair and renewal agreements are reported
+separately. Each witness is classified against **its own** observation-based horizon
+and the preserved native episode policy, for both correlated ports: a later renewal
+can legitimately anticipate another episode even if the initial activation had no
+sustained crossing within its horizon. Pair counts are not independent alarms/actions.
+
+The diagnostic produces a new sealed JSON and a readable Markdown file in a new
+`qos-shadow-alert-trace-*` sibling directory. Existing output, changed input hashes,
+nonreproducible reports, foreign identities or fabricated assessment states are
+refused. `TRACED` denotes a complete recorded lifecycle and assessment coverage, not
+successful causal filtering, generalization, a deadline pass or promotion. Missing
+coverage yields `TRACED_WITH_INCOMPLETE_COVERAGE`. Authority, actuation, new traffic,
+ETCD writes, LLM calls and fitting are not performed; v4 remains unchanged.
+
+For the identified local unmatched activation (Ubuntu; no sudo/runtime needed):
+
+```bash
+(
+  cd /home/ubuntu/sdn-ariel/comas-predictive-sla || exit 1
+  CASE_ROOT="$PWD/experiments/results/qos-online-shadow-v2-diagnostics-ramp-20261012T153426Z"
+  TRACE_ROOT="$PWD/experiments/results/qos-shadow-alert-trace-$(date -u +%Y%m%dT%H%M%SZ)"
+  python3 predictive_sla_shadow_alert_trace.py \
+    --protocol "$CASE_ROOT/protocol.json" \
+    --cid 192.168.10.10 --activation-index 38 \
+    --output "$TRACE_ROOT"
+)
+```
+
 ## Offline consolidation of the explicit shadow cohort
 
 `predictive_sla_shadow_report.py` creates a new JSON/Markdown report from existing

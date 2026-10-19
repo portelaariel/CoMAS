@@ -24,6 +24,42 @@ class ManifestInputTests(unittest.TestCase):
                 self.assertEqual(report.main(["build", "--manifest", str(path)]), 2)
             self.assertIn("schema/checksum inválido", stderr.getvalue())
 
+    def test_explicit_extra_without_receipt_is_unknown_even_with_partial_runtime_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results = Path(temporary)
+            name = report.PREFIXES[0] + "unfinalized"
+            root = results / name
+            (root / "pilot").mkdir(parents=True)
+            (root / "protocol.json").write_text("partial protocol, not validated")
+            (root / "pilot" / "shadow.log").write_text("worker may have started\n")
+            entry = report.entries_for(results, [name])[-1]
+            self.assertEqual(entry["expected_receipt_status"], "MISSING_FINAL_RECEIPT")
+            self.assertIsNone(entry["profile"])
+            self.assertEqual(report.load_attempt(entry), (None, None, None))
+            self.assertEqual(len(report.inventory([entry])), 2)
+
+    def test_receipt_appearing_cannot_silently_reclassify_unfinalized_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results = Path(temporary)
+            name = report.PREFIXES[0] + "late-receipt"
+            root = results / name
+            (root / "pilot").mkdir(parents=True)
+            entry = report.entries_for(results, [name])[-1]
+            (root / "pilot" / "pilot-run.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "sem recibo mudou"):
+                report.load_attempt(entry)
+
+    def test_present_but_invalid_receipt_is_not_downgraded_to_unknown(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results = Path(temporary)
+            name = report.PREFIXES[0] + "invalid-receipt"
+            root = results / name
+            (root / "pilot").mkdir(parents=True)
+            (root / "protocol.json").write_text(json.dumps(dict(case=dict(profile="slow-ramp"))))
+            (root / "pilot" / "pilot-run.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "schema/checksum inválido"):
+                report.entries_for(results, [name])
+
 
 class OfflineConsolidationTests(unittest.TestCase):
     @classmethod
@@ -197,13 +233,44 @@ class OfflineConsolidationTests(unittest.TestCase):
         name = report.PREFIXES[2] + "extra-receipt"
         root = self.make_attempt("stable-low", None, "STOPPED_ERROR", name, 14)
         self.addCleanup(shutil.rmtree, root)
+        unknown_names = [report.PREFIXES[0] + suffix for suffix in ("empty-extra", "partial-extra")]
+        for unknown_name in unknown_names:
+            unknown_root = self.results / unknown_name
+            unknown_root.mkdir()
+            self.addCleanup(shutil.rmtree, unknown_root)
+        partial_file = self.results / unknown_names[1] / "partial.log"
+        partial_file.write_text("unsealed and incomplete runtime evidence\n")
         destination = self.results / (report.OUTPUT_PREFIX + "registered")
-        manifest = report.freeze(self.results, destination, [name])
-        self.assertEqual(len(manifest["entries"]), 14)
+        manifest = report.freeze(self.results, destination, [name, *unknown_names])
+        self.assertEqual(len(manifest["entries"]), 16)
         result = report.build(destination / "manifest.json")
+        self.assertEqual(result["status"], "CONSOLIDATED_WITH_UNFINALIZED_SOURCES")
+        self.assertEqual(result["registered_directories"], 16)
+        self.assertEqual(result["attempts_total"], 14)
         self.assertEqual(result["completed_pilots"], 12)
         self.assertEqual(result["stopped_attempts"], 2)
+        self.assertEqual(result["unfinalized_directories"], 2)
         self.assertEqual(result["profiles"]["stable-low"]["stopped_attempts"], 2)
+        self.assertEqual(sum(p["attempts"] for p in result["profiles"].values()), 14)
+        self.assertEqual(sum(p["correlated_port_series"] for p in result["profiles"].values()), 24)
+        self.assertEqual(partial_file.read_text(), "unsealed and incomplete runtime evidence\n")
+        for source in result["unfinalized_sources"]:
+            self.assertEqual(source["status"], "UNKNOWN")
+            self.assertIsNone(source["profile"])
+            self.assertIsNone(source["domains"])
+            self.assertIsNone(source["execution_started"])
+            self.assertIsNone(source["execution_completed"])
+            self.assertIsNone(source["authority"])
+            self.assertIsNone(source["actuation"])
+            self.assertIsNone(source["performance_metrics"])
+            self.assertEqual(source["protocol_validation"], "NOT_ASSESSED")
+        self.assertIn(str(partial_file), result["source_files_sha256"])
+        md = (destination / "validation-summary.md").read_text()
+        self.assertIn("Ausência de recibo não prova ausência de execução", md)
+        self.assertTrue(all(name in md for name in unknown_names))
+        partial_file.write_text("changed after freezing")
+        with self.assertRaisesRegex(ValueError, "origem mudaram"):
+            report.load_manifest(destination / "manifest.json")
 
     def test_existing_output_is_never_overwritten(self):
         path = self.manifest("existing-output")

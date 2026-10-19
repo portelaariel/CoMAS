@@ -15,13 +15,18 @@ pilots (three per slow-ramp, fast-ramp, stable-low and short-pulses profile) and
 known stopped stable-low attempt `20261014T194859Z` explicitly. It never selects
 the latest success, silently drops a failure or substitutes another directory.
 
-Freeze requires all declared folders and final receipts, validates the original
-frozen loaders, and seals an inventory of **all** files in each selected attempt,
-including failed/partial logs. It pins its own code and the reused frozen code.
+Freeze requires all declared folders and the default cohort's final receipts,
+validates the original frozen loaders for receipted attempts, and seals an inventory
+of **all** files in every registered directory, including failed/partial logs. It
+pins its own code and the reused frozen code.
 Other candidate pilot directories are refused rather than silently ignored; use
-repeatable `--extra-attempt DIRECTORY_NAME` to register an additional final attempt
-explicitly. Missing/incomplete receipts require inspection, not deletion or a
-fabricated outcome. The known thirteen entries cannot be removed by resealing an
+repeatable `--extra-attempt DIRECTORY_NAME` to register each additional directory
+explicitly. An extra directory without `pilot/pilot-run.json` is retained as an
+inventory-only `UNKNOWN` source, even if it contains partial protocol/runtime files.
+It is not assumed to be preparation-only, an operational failure or a quiet control.
+No profile, lineage, execution, authority, actuation, timing or performance is inferred
+for it; its counters remain null, not zero. Present but invalid receipts remain an
+error and cannot be downgraded to unknown. The known thirteen entries cannot be removed by resealing an
 edited manifest. New report directories must be named `qos-shadow-characterization-*`
 directly under the results root; existing output is refused.
 
@@ -30,7 +35,12 @@ through its unchanged original evaluator, and requires exact equality with its
 existing sealed report. It verifies shared model/policy/subjects/lineage, distinct
 shadow UUIDs and native CSV hashes, and non-overlapping attempt intervals. A stopped
 attempt is retained with its original error, available domain/transport reports and
-null performance metrics; missing counters are not zero. A recorded timeout is not
+null performance metrics; missing counters are not zero. The schema `/2` summary
+separates `registered_directories`, `attempts_total` (final receipts only), and
+`unfinalized_directories`/`unfinalized_sources` (inventory-only unknowns). Profile and
+performance denominators contain no unfinalized sources. Non-overlap/identity checks
+apply only to receipted attempts and establish nothing about unfinalized execution.
+A recorded timeout is not
 automatically treated as an established root cause or repaired by subsequent success.
 
 The summary separates physical pilot counts, correlated port episodes, actual
@@ -70,7 +80,12 @@ The new directory contains:
   protected lineage and the stopped attempt.
 
 `status=CONSOLIDATED` means that artifact verification and consolidation completed,
-not that all attempts succeeded or prevention is safe. Source changes, mismatched
+not that all attempts succeeded or prevention is safe. When explicitly registered
+unfinalized sources exist, the status is `CONSOLIDATED_WITH_UNFINALIZED_SOURCES`;
+their files are preserved but their outcome remains unresolved. A receipt appearing
+later or any file change invalidates the manifest rather than silently changing the
+classification. Freeze a new report directory after investigating the change.
+Source changes, mismatched
 replays, missing pilots, unregistered directories, reused evidence or uncertain
 identity stop report generation. Preserve partial output and investigate rather
 than overwriting sources, dropping failed attempts, tuning parameters or replaying

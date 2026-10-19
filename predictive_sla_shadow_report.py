@@ -23,8 +23,8 @@ import predictive_sla_validation as provenance
 
 
 ROOT = Path(__file__).resolve().parent
-MANIFEST_SCHEMA = "comas-shadow-characterization-manifest/1"
-SUMMARY_SCHEMA = "comas-shadow-characterization-summary/1"
+MANIFEST_SCHEMA = "comas-shadow-characterization-manifest/2"
+SUMMARY_SCHEMA = "comas-shadow-characterization-summary/2"
 OUTPUT_PREFIX = "qos-shadow-characterization-"
 MODULES = {"slow-ramp": slow, "fast-ramp": fast,
            "stable-low": controls, "short-pulses": controls}
@@ -53,10 +53,11 @@ CODE_FILES = tuple(dict.fromkeys((*controls.CODE_FILES, "predictive_sla_shadow_r
 POLICY = dict(
     cohort="explicit_required_12_completed_pilots_and_known_failed_control; no_latest_success_selection",
     extra_directories="must_be_registered_explicitly_with_extra_attempt; never_silently_discarded",
-    source_validation="sealed_receipts_and_frozen_loaders; exact_offline_replay_of_original_reports",
-    repetitions="distinct_paths_UUIDs_CSV_hashes_and_nonoverlapping_attempt_intervals",
+    source_validation="receipted_attempts_use_frozen_loaders_and_exact_replay; unfinalized_sources_inventory_only",
+    repetitions="receipted_attempts_only: distinct_paths_UUIDs_CSV_hashes_and_nonoverlapping_intervals",
     statistics="descriptive_physical_pilot_counts; correlated_ports_not_independent_trials",
     failure="excluded_from_performance_only; retained_in_attempt_counts_and_provenance",
+    missing_receipt="explicit_extra_registration_only; UNKNOWN_not_success_failure_or_preparation; no_performance_metrics",
     pulses="actual_native_timestamp_value_binding; measured_interval_overlap; descriptive_not_delivery_pass",
     action="offline_report_only; no_acceptance_or_promotion",
 )
@@ -69,6 +70,7 @@ LIMITATIONS = [
     "Quiet controls do not establish 100% specificity or a general false-alarm rate.",
     "Pulse maxima are averages over measured counter intervals; no clipping at utilization 1 or instantaneous-peak claim.",
     "The known stopped attempt remains an operational failure; subsequent success does not explain its root cause.",
+    "Explicit extra directories without a final receipt are inventory-only UNKNOWN sources, not proved preparations, failures or completed trials; their execution, lineage and timing are unassessed.",
     "The original v4 remains NOT_PASSED; no source result, model, threshold or policy is changed.",
 ]
 
@@ -99,11 +101,19 @@ def entries_for(results, extra=()):
         if Path(name).name != name or name in names or not name.startswith(PREFIXES):
             raise ValueError("extra-attempt deve ser novo nome de diretório de piloto, sem caminho")
         root = results / name
+        receipt_path = root / "pilot" / "pilot-run.json"
+        if receipt_path.is_symlink():
+            raise ValueError("recibo não pode ser link simbólico")
+        if not receipt_path.exists():
+            entries.append(dict(profile=None, repetition=None, expected_receipt_status="MISSING_FINAL_RECEIPT",
+                                directory=name, root=str(root)))
+            names.add(name)
+            continue
         p = read_json(root / "protocol.json")
         profile = p["case"]["profile"]
         if profile not in MODULES:
             raise ValueError("perfil adicional desconhecido")
-        receipt = sealed(root / "pilot" / "pilot-run.json", MODULES[profile].RECEIPT_SCHEMA, "run_sha256")
+        receipt = sealed(receipt_path, MODULES[profile].RECEIPT_SCHEMA, "run_sha256")
         if receipt["status"] not in {"COLLECTED", "STOPPED_ERROR"}:
             raise ValueError("tentativa adicional sem recibo final reconhecido")
         entries.append(dict(profile=profile, repetition=None, expected_receipt_status=receipt["status"],
@@ -136,6 +146,12 @@ def inventory(entries):
 
 def load_attempt(entry):
     root = Path(entry["root"])
+    if entry["expected_receipt_status"] == "MISSING_FINAL_RECEIPT":
+        receipt_path = root / "pilot" / "pilot-run.json"
+        if (entry["profile"] is not None or root.is_symlink() or not root.is_dir()
+                or receipt_path.exists() or receipt_path.is_symlink()):
+            raise ValueError("fonte sem recibo mudou; não a reclassifique silenciosamente")
+        return None, None, None
     module = MODULES[entry["profile"]]
     p = module.load_protocol(root / "protocol.json")
     receipt = sealed(root / "pilot" / "pilot-run.json", module.RECEIPT_SCHEMA, "run_sha256")
@@ -266,10 +282,18 @@ def compact_domain(domain):
 
 def consolidate(manifest):
     attempts, common, csv_hashes, uuids, intervals = [], None, set(), set(), []
-    lineage_files = {}
+    lineage_files, unfinalized_sources = {}, []
     for entry in manifest["entries"]:
         root = Path(entry["root"])
         module, p, receipt = load_attempt(entry)
+        if receipt is None:
+            unfinalized_sources.append(dict(**entry, status="UNKNOWN", reason="missing_final_receipt",
+                execution_started=None, execution_completed=None, authority=None, actuation=None,
+                protocol_validation="NOT_ASSESSED", timing_validation="UNASSESSABLE",
+                performance_metrics=None, domains=None,
+                source_files_sha256={name: checksum for name, checksum in manifest["source_files_sha256"].items()
+                                     if Path(name).is_relative_to(root)}))
+            continue
         identity = {key: p[key] for key in ("source_diagnostic_config", "source_idle_run", "source_criteria_status",
                     "model", "policy", "subjects", "collection", "runtime", "matching_policy", "boundary")}
         if common is None:
@@ -333,8 +357,11 @@ def consolidate(manifest):
             native_samples_not_seen_by_sidecar=sum(d["native_samples_not_seen_by_sidecar"] for d in domains),
             control_observations=[row["control_observation"] for row in complete] if profile in controls.PROFILES else None,
             distinct_joint_pair_witnesses=sum(row["distinct_joint_agreement_witnesses"] for row in complete))
-    return dict(schema_version=SUMMARY_SCHEMA, status="CONSOLIDATED", manifest_sha256=manifest["manifest_sha256"],
+    status = "CONSOLIDATED_WITH_UNFINALIZED_SOURCES" if unfinalized_sources else "CONSOLIDATED"
+    return dict(schema_version=SUMMARY_SCHEMA, status=status, manifest_sha256=manifest["manifest_sha256"],
         policy=POLICY, lineage=common, original_v4_status=common["source_criteria_status"],
+        registered_directories=len(manifest["entries"]),
+        unfinalized_directories=len(unfinalized_sources), unfinalized_sources=unfinalized_sources,
         attempts_total=len(attempts), completed_pilots=sum(row["status"] == "COMPLETED" for row in attempts),
         stopped_attempts=sum(row["status"] == "STOPPED_ERROR" for row in attempts), profiles=profiles, attempts=attempts,
         source_files_sha256=manifest["source_files_sha256"], protected_lineage_sha256=lineage_files,
@@ -349,7 +376,8 @@ def consolidate(manifest):
 def render_markdown(report):
     lines = ["# CoMAS — caracterização shadow online", "",
         f"Status de consolidação: `{report['status']}` — não é aprovação ou promoção.", "",
-        f"Tentativas: {report['attempts_total']}; pilotos concluídos: {report['completed_pilots']}; "
+        f"Diretórios registrados: {report['registered_directories']}; sem recibo final: {report['unfinalized_directories']}.",
+        f"Tentativas com recibo: {report['attempts_total']}; pilotos concluídos: {report['completed_pilots']}; "
         f"interrompidos: {report['stopped_attempts']}.",
         "Duas portas correlacionadas por piloto; independência estatística não estabelecida.", "",
         "| Perfil | Tentativas | Concluídos | Falhas | Episódios amostrados | Acordos antecipados | Margem mínima (s) | Ativações locais |",
@@ -379,6 +407,14 @@ def render_markdown(report):
                     counts = [p["windows_count"] for p in domain["pulses"]]
                     lines.append(f"- Pulsos {domain['cid']}: máximos médios por janela `{peaks}`; janelas `{counts}`.")
         lines.append("")
+    if report["unfinalized_sources"]:
+        lines.extend(["## Fontes sem recibo final — resultado desconhecido", "",
+            "Não entram nas métricas nem nas contagens de tentativas com recibo. Ausência de recibo não prova ausência de execução.",
+            "Perfil, linhagem, intervalo temporal, authority e atuação não foram validados; não são classificados como falhas ou preparações.", ""])
+        for row in report["unfinalized_sources"]:
+            lines.extend([f"### {row['directory']}", "", "- Estado: `UNKNOWN`; motivo: `missing_final_receipt`.",
+                          f"- Arquivos inventariados: {len(row['source_files_sha256'])}; hashes preservados no JSON e inventário.",
+                          "- Métricas de desempenho: desconhecidas (`null`), não zero.", ""])
     lines.extend(["## Proveniência e limites", "",
                   f"Manifesto SHA256: `{report['manifest_sha256']}`.",
                   "`source-inventory.json` contém os caminhos absolutos e hashes dos artefatos, incluindo a falha.",
@@ -420,10 +456,10 @@ def main(argv=None):
     try:
         if args.command == "freeze":
             m = freeze(args.results_root, args.output, args.extra_attempt)
-            print(f"manifest={args.output / 'manifest.json'} attempts={len(m['entries'])} offline=true")
+            print(f"manifest={args.output / 'manifest.json'} registered={len(m['entries'])} offline=true")
         else:
             result = build(args.manifest)
-            print(f"status={result['status']} attempts={result['attempts_total']} completed={result['completed_pilots']} stopped={result['stopped_attempts']} originals_unchanged=true offline=true")
+            print(f"status={result['status']} registered={result['registered_directories']} attempts_with_receipt={result['attempts_total']} completed={result['completed_pilots']} stopped={result['stopped_attempts']} unfinalized={result['unfinalized_directories']} originals_unchanged=true offline=true")
             for profile, row in result["profiles"].items():
                 print(f"{profile}: completed={row['completed_pilots']} stopped={row['stopped_attempts']} episodes={row['sampled_episodes']} pre_onset={row['joint_pre_sampled_onset']} late={row['joint_at_or_after_sampled_onset']} missing={row['joint_without_recorded_agreement']} activations={row['local_activations']} min_margin_s={row['agreement_margin_s']['minimum']}")
             print(f"json={args.manifest.parent / 'validation-summary.json'}")

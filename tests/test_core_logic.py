@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from collaborative_decision import score_collaborative_evidence
+from comas.detection import ResidualAnomalyDetector
+from comas.forecasting import HoltPredictor
 from offline_model import OfflineModel, inverse_transform_value, transform_value
 
 
@@ -31,8 +33,10 @@ class PredictorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.symbols = load_definitions(
             "flow_predictor_cnsm.py",
-            {"HoltPredictor", "ResidualAnomalyDetector", "SeriesState"},
+            {"SeriesState"},
             {
+                "HoltPredictor": HoltPredictor,
+                "ResidualAnomalyDetector": ResidualAnomalyDetector,
                 "Optional": Optional,
                 "Tuple": Tuple,
                 "Dict": Dict,

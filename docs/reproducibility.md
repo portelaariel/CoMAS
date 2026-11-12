@@ -57,8 +57,8 @@ volumes, imagens ou a infraestrutura do experimento.
 
 ## Primeira etapa da reorganização
 
-A etapa documental mantém os arquivos de runtime, contratos, modelos, fixtures,
-scripts e configurações nos caminhos existentes. O manual longo do README foi
+Na primeira etapa documental, os arquivos de runtime, contratos, modelos, fixtures,
+scripts e configurações foram mantidos nos caminhos existentes. O manual longo do README foi
 preservado em `docs/operations.md`, com navegação e orientações de versão
 atualizadas. `PREDICTIVE_SLA.md` continua no caminho original.
 
@@ -66,6 +66,26 @@ O inventário permite conferir o que mudou desde a referência. Uma comparação
 deve separar mudanças documentais das mudanças de código; a identidade dos
 arquivos da referência não deve ser apresentada como identidade de todas as
 versões futuras.
+
+## Primeira extração das primitivas de tráfego
+
+O runtime passa a importar Holt e o detector de resíduos dos pacotes
+`comas.forecasting` e `comas.detection`. O conteúdo de `SeriesState` e da
+orquestração permanece preservado; o Dockerfile inclui o novo pacote. Os
+contratos e as transformações de `offline_model.py` continuam os mesmos.
+
+`tests/fixtures/runtime_primitives_baseline_v1.json` registra saídas obtidas das
+classes originais no commit da referência antes da extração: três sequências
+Holt e quatro sequências do detector. O teste verifica estado, previsões,
+resíduos, warmup, janela MAD, limites assimétricos e adaptação opcional. Outro
+teste monta o layout declarado pelos comandos COPY do Dockerfile e verifica
+os imports em um processo sem dependências do serviço.
+
+Esses testes são regressões de comportamento, não validação independente do
+método ou um build real de imagem Docker. O caminho multi-horizonte de SLA e os
+seus protocolos permanecem nos módulos anteriores. A fonte integral do runtime
+antigo continua disponível pela tag da referência; o inventário não é refeito
+para apresentar os arquivos novos como se fossem os originais.
 
 ## Critérios para extrair módulos no futuro
 

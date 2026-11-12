@@ -86,6 +86,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from flask import Flask, jsonify, request
 
+from comas.detection import ResidualAnomalyDetector
+from comas.forecasting import HoltPredictor
 from agent_protocol import agent_flow_hash
 from agent_authority import (
     claim_agentic_mitigation,
@@ -352,128 +354,8 @@ if ETCD_ENDPOINTS:
         _etcd = None
 
 
-# =====================================================================
-# 1) PREDIÇÃO — Holt (nível + tendência), leve e adequado a streaming
-# =====================================================================
-class HoltPredictor:
-    """
-    Suavização exponencial dupla (Holt). Escolhida por:
-      - custo O(1) por amostra (escala para milhares de séries);
-      - captura nível E tendência (melhor que EWMA puro em rampas de vazão);
-      - sem dependências pesadas (funciona em qualquer topologia/hardware).
-    A interface (update/predict) é pluggável: pode ser trocada por ARIMA/LSTM
-    sem alterar o restante do módulo.
-    """
-
-    def __init__(self, alpha: float = 0.35, beta: float = 0.10,
-                 transform: str = "identity"):
-        self.alpha = alpha
-        self.beta = beta
-        self.transform = transform
-        self.level: Optional[float] = None
-        self.trend: float = 0.0
-        self.n = 0
-
-    def update(self, value: float) -> None:
-        transformed = transform_value(value, self.transform)
-        if self.level is None:
-            self.level = transformed
-            self.trend = 0.0
-        else:
-            prev_level = self.level
-            self.level = (self.alpha * transformed
-                          + (1 - self.alpha) * (self.level + self.trend))
-            self.trend = self.beta * (self.level - prev_level) + (1 - self.beta) * self.trend
-        self.n += 1
-
-    def predict_transformed(self, horizon: int = 1) -> float:
-        if self.level is None:
-            return transform_value(0.0, self.transform)
-        return self.level + horizon * self.trend
-
-    def predict(self, horizon: int = 1) -> float:
-        if self.level is None:
-            return 0.0
-        return inverse_transform_value(self.predict_transformed(horizon), self.transform)
-
-    def residual(self, observed: float, predicted: float) -> float:
-        """Resíduo no espaço em que o modelo offline foi calibrado."""
-        return (transform_value(observed, self.transform)
-                - transform_value(predicted, self.transform))
-
-    @property
-    def trend_bps(self) -> float:
-        if self.level is None:
-            return 0.0
-        return self.predict(1) - self.predict(0)
-
-
-# =====================================================================
-# 2) DETECÇÃO — z-score robusto (MAD) sobre resíduos de predição
-# =====================================================================
-class ResidualAnomalyDetector:
-    """
-    Mantém janela de resíduos (observado - predito). Usa mediana + MAD
-    (Median Absolute Deviation) para robustez contra outliers passados —
-    um pico anômalo anterior não "envenena" a estatística como faria com
-    média/desvio-padrão simples.
-    """
-
-    MAD_K = 1.4826  # fator de consistência para distribuição normal
-
-    def __init__(self, window: int, z_threshold: float, warmup: int,
-                 fixed_center: Optional[float] = None,
-                 fixed_scale: Optional[float] = None,
-                 online_adaptation: bool = False,
-                 drop_z_threshold: Optional[float] = None):
-        self.residuals: deque = deque(maxlen=window)
-        # z_threshold permanece como alias do lado positivo para não quebrar
-        # clientes e modelos legados que usavam um único valor simétrico.
-        self.z_threshold = z_threshold
-        self.drop_z_threshold = (z_threshold if drop_z_threshold is None
-                                 else drop_z_threshold)
-        self.warmup = warmup
-        self.fixed_center = fixed_center
-        self.fixed_scale = fixed_scale
-        self.online_adaptation = online_adaptation
-
-    @property
-    def offline_calibrated(self) -> bool:
-        return self.fixed_center is not None and self.fixed_scale is not None
-
-    @property
-    def ready(self) -> bool:
-        return self.offline_calibrated or len(self.residuals) >= self.warmup
-
-    def _center_scale(self) -> Tuple[float, float]:
-        use_offline = (self.offline_calibrated
-                       and (not self.online_adaptation
-                            or len(self.residuals) < max(3, self.warmup)))
-        if use_offline:
-            return float(self.fixed_center), max(float(self.fixed_scale), 1e-6)
-
-        data = sorted(self.residuals)
-        median = data[len(data) // 2]
-        mad = sorted(abs(x - median) for x in data)[len(data) // 2]
-        return median, max(self.MAD_K * mad, 1e-6)
-
-    def score(self, residual: float) -> Tuple[float, bool]:
-        """Retorna (z_score, is_anomaly) usando calibração offline ou warmup."""
-        if not self.ready:
-            self.residuals.append(residual)
-            return 0.0, False
-
-        median, sigma = self._center_scale()
-        z = (residual - median) / sigma
-
-        is_anom = z > self.z_threshold or z < -self.drop_z_threshold
-        # Resíduos anômalos NÃO entram na janela (evita mascarar ataques prolongados)
-        if not is_anom and (not self.offline_calibrated or self.online_adaptation):
-            self.residuals.append(residual)
-        return z, is_anom
-
-    def threshold_for(self, z_score: float) -> float:
-        return self.z_threshold if z_score >= 0.0 else self.drop_z_threshold
+# Prediction and residual scoring are imported from the passive comas package.
+# Series processing and service composition retain their existing runtime configuration.
 
 
 # =====================================================================

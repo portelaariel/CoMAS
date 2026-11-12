@@ -71,6 +71,7 @@ rede.
 | Caminho | Responsabilidade |
 | --- | --- |
 | `flow_predictor_cnsm.py` | Composição atual do serviço: coleta, detecção, coordenação e API. |
+| `comas/forecasting/`, `comas/detection/` | Primitivas de previsão Holt de tráfego e detecção por resíduos, importáveis sem iniciar o serviço. |
 | `agent_protocol.py`, `domain_agent.py`, `agent_authority.py` | Propostas, deliberação, autorização e claim. |
 | `offline_model.py`, `qos_*.py`, `sla_*.py` | Contratos de modelos, previsão, telemetria e avaliação de risco. |
 | `predictive_sla_*.py`, `train_*.py`, `backtest_sla_risk.py` | Entradas de treinamento, campanhas e análises de pesquisa. |

@@ -1,8 +1,8 @@
 # Arquitetura atual
 
-Este mapa descreve o código da referência
-`40b60906dfa299309fd423022bb00225666d7ff6`. A estrutura de pacotes proposta no
-[plano incremental](refactoring-plan.md) ainda é uma meta de reorganização.
+Este mapa parte da referência `40b60906dfa299309fd423022bb00225666d7ff6` e
+identifica a primeira extração de primitivas para `comas/`. As próximas
+fronteiras estão descritas no [plano incremental](refactoring-plan.md).
 
 ## Serviços do testbed
 
@@ -33,7 +33,8 @@ caminho pode atuar; em `authority-live`, o MCDA permanece comparador.
 | Área | Implementação principal | Responsabilidade |
 | --- | --- | --- |
 | Composição do runtime | `flow_predictor_cnsm.py` | Lê configuração, instancia engine/coletor e expõe a API Flask. |
-| Previsão e detecção de tráfego | `offline_model.py`; classes `HoltPredictor`, `SeriesState` e `ResidualAnomalyDetector` no runtime | Carrega o contrato do modelo, mantém estado por série e avalia resíduos. |
+| Previsão de tráfego | `comas/forecasting/holt.py`, `offline_model.py`; `SeriesState` no runtime | Mantém o estado Holt e usa as transformações do contrato offline existente. |
+| Detecção por resíduos | `comas/detection/residual.py`; `SeriesState` no runtime | Avalia resíduos com warmup, MAD, calibração fixa e limiares assimétricos. |
 | Coleta e histórico | Classes `Collector` e `PredictionHistoryExporter`; `qos_telemetry.py` | Converte contadores, preserva qualidade das amostras e exporta históricos. |
 | MCDA | `collaborative_decision.py`; `CollaborativeDecisionManager` | Combina evidências e registra a decisão multicritério. |
 | Propostas e deliberação | `agent_protocol.py`, `domain_agent.py`; `AgenticShadowManager` | Valida propostas e avalia a compatibilidade/quórum entre domínios. |
@@ -44,6 +45,17 @@ caminho pode atuar; em `authority-live`, o MCDA permanece comparador.
 Os diretórios de serviços incluem código de terceiros com avisos próprios.
 Uma limpeza futura deve verificar uso e origem antes de remover ou substituir
 esses arquivos.
+
+`flow_predictor_cnsm.py` importa e continua expondo os nomes `HoltPredictor` e
+`ResidualAnomalyDetector`. As classes agora também podem ser importadas por
+`comas.forecasting` e `comas.detection`, sem Flask, ETCD, leitura de modelo,
+configuração de ambiente ou criação de threads. `SeriesState`, configuração,
+coleta, coordenação, feedback e rotas permanecem no serviço nesta extração.
+
+O pacote `comas/` fica na raiz para funcionar com a execução e o contexto Docker
+atuais, sem ajustes de `PYTHONPATH` ou instalação de pacote. O Dockerfile copia
+esse diretório para `/app/comas/`. As transformações matemáticas continuam no
+módulo puro `offline_model.py`, compartilhado com o treino existente.
 
 ## Consenso de domínio e consenso do armazenamento
 

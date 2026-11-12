@@ -25,6 +25,11 @@ required_files=(
   config/runtime.env
   Dockerfile.flow_predictor
   flow_predictor_cnsm.py
+  comas/__init__.py
+  comas/forecasting/__init__.py
+  comas/forecasting/holt.py
+  comas/detection/__init__.py
+  comas/detection/residual.py
   agent_protocol.py
   domain_agent.py
   agent_authority.py

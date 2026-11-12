@@ -18,7 +18,8 @@ jobs:
   validate:
     name: Static and core checks
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Full validation replays frozen experiment fixtures and can exceed 10 minutes.
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository

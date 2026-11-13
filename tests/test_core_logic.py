@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from collaborative_decision import score_collaborative_evidence
+from comas.detection import ResidualAnomalyDetector
+from comas.forecasting import HoltPredictor
 from offline_model import OfflineModel, inverse_transform_value, transform_value
 
 
@@ -31,8 +33,10 @@ class PredictorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.symbols = load_definitions(
             "flow_predictor_cnsm.py",
-            {"HoltPredictor", "ResidualAnomalyDetector", "SeriesState"},
+            {"SeriesState"},
             {
+                "HoltPredictor": HoltPredictor,
+                "ResidualAnomalyDetector": ResidualAnomalyDetector,
                 "Optional": Optional,
                 "Tuple": Tuple,
                 "Dict": Dict,
@@ -200,6 +204,33 @@ class PredictorTests(unittest.TestCase):
         self.assertIsNotNone(anomaly)
         self.assertEqual(anomaly["kind"], "THROUGHPUT_SPIKE")
         self.assertEqual(series.predictor.n, samples_before_attack)
+
+    def test_idle_and_priming_samples_record_once_after_history_append(self):
+        rows = []
+        case = self
+
+        class Recorder:
+            def record(self, key, meta, ts, observed, predicted, residual, z_score, anomaly):
+                case.assertEqual(series.history[-1], (ts, observed, predicted))
+                case.assertEqual((residual, z_score, anomaly), (0.0, None, False))
+                rows.append((ts, observed, predicted))
+
+        previous = self.symbols['_exporter']
+        self.symbols['_exporter'] = Recorder()
+        try:
+            model = OfflineModel(alpha=0.9, beta=0.0, transform='log1p',
+                                 residual_center=0.0, residual_scale=0.4,
+                                 z_threshold=5.0, created_at='test', series_priming_samples=2)
+            series = self.symbols['SeriesState']('flow:test', {'type': 'flow'}, model)
+            for counter, timestamp in [(0, 0.0), (1, 10.0), (1, 11.0),
+                                       (2, 12.0), (3, 13.0), (3, 14.0), (3, 15.0)]:
+                self.assertIsNone(series.ingest(counter, timestamp))
+            self.assertEqual(rows, [(10.0, 0.8, 0.0), (11.0, 0.0, 0.0),
+                                    (12.0, 8.0, 8.0), (13.0, 8.0, 8.0),
+                                    (14.0, 0.0, 0.0), (15.0, 0.0, 0.0)])
+            self.assertEqual(series.predictor.n, 0)
+        finally:
+            self.symbols['_exporter'] = previous
 
     def test_repeated_anomalies_are_aggregated_during_cooldown(self):
         class FakeMitigator:

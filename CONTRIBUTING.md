@@ -50,7 +50,31 @@ a imagem atual do preditor usa Python 3.9.
 Durante uma mudança de código, execute primeiro os testes relevantes e depois
 as verificações exigidas para a integração. Para documentação, confira links,
 comandos, exemplos e o diff; não altere os resultados congelados para fazer
-uma verificação passar. A CI continua executando a suíte completa nos PRs.
+uma verificação passar. A CI executa a suíte completa e um job separado de
+imagem Docker nos PRs.
+
+Para validar a imagem real, com Docker disponível:
+
+```bash
+docker build --tag comas-runtime-check --file Dockerfile.flow_predictor .
+bash scripts/test_runtime_image.sh comas-runtime-check
+```
+
+Esse smoke test importa o serviço empacotado, injeta contadores controlados e
+exercita a API Flask e a exportação CSV. O container não tem rede e não inicia o
+coletor. Não exige ETCD, controlador ou Mininet. O `.dockerignore` da raiz inclui
+somente os arquivos usados pelo Dockerfile do preditor; ao adicionar uma nova
+dependência local ao build, atualize também essa lista.
+
+Para comparar o custo de pontuação dos resíduos com uma referência Git:
+
+```bash
+python3 experiments/benchmark_residual_scoring.py
+```
+
+O benchmark confere primeiro as saídas e a janela final, depois informa tempos
+por caso e a versão de referência. Não estabelece um limite de desempenho na CI
+nem mede a latência do sistema SDN.
 
 Executar setup, benchmark ou recuperação no servidor é uma operação distinta
 de testar o código. Esses comandos podem modificar recursos do laboratório e

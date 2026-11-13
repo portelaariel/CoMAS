@@ -21,13 +21,22 @@ não altera critérios de promoção nem aprova resultados experimentais.
 | 4 — Pesquisa e comandos | Navegação uniforme para treino, backtest, campanhas e relatórios; resolução explícita das versões históricas. | Comandos existentes continuam disponíveis no seu checkout de origem; saídas antigas reproduzíveis. |
 | 5 — CI e distribuição | Jobs rápidos e reprodução completa identificados separadamente; empacotamento e dependências por componente. | Mesma cobertura exigida; imports sem efeitos de runtime; compatibilidade verificada com as versões Python suportadas. |
 
-A etapa 1 é o escopo da primeira mudança. As demais etapas exigem alterações de
-código e evidências próprias; os diretórios propostos abaixo ainda não existem.
+A primeira mudança concluiu a etapa 1. A primeira extração da etapa 2 moveu
+`HoltPredictor` e `ResidualAnomalyDetector` para `comas/forecasting/` e
+`comas/detection/`, mantendo seus nomes públicos no runtime. Há traces de
+regressão da referência, testes dos imports passivos e do layout de cópia Docker.
+A extração seguinte moveu o exportador CSV para `comas/telemetry/`, reuniu os
+três registros de amostras sem pontuação em um método e acrescentou cache para
+janelas MAD estáveis. A API e os bytes dos CSVs foram comparados entre imagens
+Docker, com relógio e identidades controlados. O build e o smoke test da imagem
+também passaram a ter um job próprio na CI, avançando parte da etapa 5.
+Configuração, coleta, séries, coordenação e API continuam no serviço; as demais
+extrações exigem evidências próprias.
 
 ## Destino proposto para o código ativo
 
 ```text
-src/comas/
+comas/
   runtime/       composição do serviço e configuração
   telemetry/     contadores, qualidade e históricos
   forecasting/   modelos e estado dos previsores
@@ -40,8 +49,13 @@ docs/            navegação, arquitetura e operação
 tests/           testes organizados pelas mesmas responsabilidades
 ```
 
-Essa árvore é uma proposta, não uma lista de movimentações a executar de uma
-vez. `llm_auditor/` já tem uma fronteira própria e pode permanecer como pacote
+`comas/forecasting/`, `comas/detection/` e `comas/telemetry/` já existem; telemetria
+contém o exportador, enquanto o coletor continua no runtime. A raiz de pacote
+`comas/` mantém os imports e o build existentes;
+uma eventual mudança para `src/comas/` fica vinculada ao empacotamento da etapa
+5, junto de seus testes de instalação. As demais pastas da árvore são propostas,
+não uma lista de movimentações a executar de uma vez.
+`llm_auditor/` já tem uma fronteira própria e pode permanecer como pacote
 independente. Os serviços Ryu, SimpleSwitch e FlowBlocker também mantêm seus
 contextos de build enquanto essa separação for necessária.
 

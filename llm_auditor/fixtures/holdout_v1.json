@@ -1,0 +1,1213 @@
+{
+  "dataset_id": "comas-protocol-validation-v1",
+  "suite": "holdout-v1",
+  "dataset_role": "post-development-synthetic-validation",
+  "version": 1,
+  "created_on": "2026-09-15",
+  "prompt_baseline_commit": "9d0e0ef",
+  "evaluation_contract": {
+    "ollama_client_sha256": "fb18a031076563cce7dff2cbee7ca377061d7d934831c0d8b31fab350bb6fbb3",
+    "prompt_template_sha256": "6a4b5dcb9ced0a69da191bbf7008b3b45f22971e37fd181eadfebf31bdaabd59",
+    "evaluation_schema_sha256": "08d031918624ec82bd542bc41f4e5c1aac09a8d7181ab2210c4804051b01c423"
+  },
+  "limitations": [
+    "All inputs are synthetic fixtures; none are new network executions.",
+    "Nominal variations derive from the development templates with changed identifiers, topology scope or execution mode; they are not an independent external benchmark.",
+    "The counterexamples and incomplete-data cases were authored after prompt development. Freeze this corpus before inference and do not tune on its results.",
+    "Case groups are heterogeneous. Repeated seeds are not independent network experiments; report descriptive per-group and field-level agreement.",
+    "Expected categorical verdicts are declared fixture oracles. They are withheld from the LLM; explanations require separate qualitative review."
+  ],
+  "cases": [
+    {
+      "case_id": "h01",
+      "title": "Local flow: one relevant domain, selected dry-run executor",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h01",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_flow_decision",
+        "flow": "10.64.2.7->10.64.2.9",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 1,
+        "mitigate_votes": [
+          "172.24.5.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "source_cid": "172.24.5.10",
+        "destination_cid": "172.24.5.10"
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "DRY_RUN_SUPPRESSED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The configured one-domain quorum, authorization and unique claim are satisfied. The DDoS decision is appropriate, but dry-run prevents actuation."
+    },
+    {
+      "case_id": "h02",
+      "title": "Destination observer awaits the source proposal",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h02",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "WAITING_PROPOSALS": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "WAITING_PROPOSALS",
+            "observed_by": "172.25.8.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.25.8.10"
+        ],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "missing_domains": [
+          "172.24.5.10"
+        ],
+        "execution_requested_by_final_decision": false,
+        "other_coordinator_elected": false
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "UNKNOWN",
+        "decision_stage": "INTERMEDIATE",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "Waiting for an explicitly missing relevant proposal is valid. No final decision or actuation was requested."
+    },
+    {
+      "case_id": "h03",
+      "title": "Live-mode local non-winner: remote coordinator selected",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h03",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.25.8.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [],
+        "execution_mode": "authority-live",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 1,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": false,
+        "other_coordinator_elected": true,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "known_claim_coordinator": "172.24.5.10"
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "SKIPPED_OTHER_COORDINATOR",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The authorized global mitigation decision is final, but the observed local agent must abstain because another coordinator won. Effectiveness is not evaluated for this local non-executor observation."
+    },
+    {
+      "case_id": "h04",
+      "title": "Corroborated evidence from one of two domains",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h04",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "mcda": 1
+        },
+        "event_counts_by_state": {
+          "CORROBORATED": 1
+        },
+        "transitions": [
+          {
+            "layer": "mcda",
+            "state": "CORROBORATED",
+            "observed_by": "172.25.8.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "confirming_domains": [
+          "172.25.8.10"
+        ],
+        "min_domains": 2,
+        "execution_requested_by_final_decision": false
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "UNKNOWN",
+        "decision_stage": "INTERMEDIATE",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "Some evidence is corroborated, but the minimum domain count remains unmet. A valid intermediate state is not a terminal scenario verdict."
+    },
+    {
+      "case_id": "h05",
+      "title": "Whitelisted destination vetoes a mitigation proposal",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h05",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "VETOED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "VETOED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10"
+        ],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "ddos_with_destination_whitelist",
+          "ground_truth_available": true,
+          "applicable_policy": "whitelisted destination must veto"
+        },
+        "veto_domains": [
+          "172.25.8.10"
+        ],
+        "veto_reason": "destination_whitelist",
+        "execution_requested_by_final_decision": false
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The relevant destination supplied a policy veto. Respecting the whitelist is the final expected policy outcome, and no mitigation is requested."
+    },
+    {
+      "case_id": "h06",
+      "title": "Benign local flow remains NORMAL",
+      "group": "nominal-variation",
+      "derived_from_development_template": true,
+      "evidence": {
+        "fixture_id": "h06",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_flow_decision",
+        "flow": "10.64.2.7->10.64.2.11",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "mcda": 1
+        },
+        "event_counts_by_state": {
+          "NORMAL": 1
+        },
+        "transitions": [
+          {
+            "layer": "mcda",
+            "state": "NORMAL",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 1,
+        "mitigate_votes": [],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "benign",
+          "ground_truth_available": true
+        },
+        "source_cid": "172.24.5.10",
+        "destination_cid": "172.24.5.10",
+        "normal_votes": [
+          "172.24.5.10"
+        ],
+        "confirming_domains": [],
+        "anomaly_threshold_confirmed": false,
+        "execution_requested_by_final_decision": false
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The detector reports no confirmed anomaly in labelled benign traffic. NORMAL is final and deliberately requests no mitigation."
+    },
+    {
+      "case_id": "h07",
+      "title": "AGREED reported despite insufficient mitigation votes",
+      "group": "protocol-violation",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h07",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10"
+        ],
+        "quorum_reached": false,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "unlabelled",
+          "ground_truth_available": false
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "normal_votes": [
+          "172.25.8.10"
+        ]
+      },
+      "expected": {
+        "protocol_consistency": "INCONSISTENT",
+        "scenario_correctness": "UNKNOWN",
+        "decision_stage": "FINAL",
+        "execution_status": "DRY_RUN_SUPPRESSED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "Only one mitigation vote is present for a required quorum of two, so AGREED violates the quorum rule. A recorded dry-run winner still explains suppressed actuation; traffic ground truth is unavailable."
+    },
+    {
+      "case_id": "h08",
+      "title": "Two agents report winning the same atomic execution claim",
+      "group": "protocol-violation",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h08",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "multi_domain_episode",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 2,
+        "event_counts_by_layer": {
+          "agentic": 2
+        },
+        "event_counts_by_state": {
+          "AGREED": 2
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          },
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.25.8.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 2,
+          "agentic_authorized_events": 2,
+          "atomic_claim_winner_events": 2,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 2
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "claim_configuration": {
+          "maximum_winners_per_flow_episode": 1
+        }
+      },
+      "expected": {
+        "protocol_consistency": "INCONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "DRY_RUN_SUPPRESSED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "Consensus for DDoS mitigation is appropriate, but two winners in one flow episode violate the single-executor invariant. Both recorded execution requests remain dry-run suppressed."
+    },
+    {
+      "case_id": "h09",
+      "title": "Valid mitigation consensus on labelled benign traffic",
+      "group": "scenario-discrepancy",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h09",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "benign",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        }
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "INCORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "DRY_RUN_SUPPRESSED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "Protocol quorum, authorization and unique claim are valid. Nevertheless, mitigating labelled benign traffic is a scenario false positive."
+    },
+    {
+      "case_id": "h10",
+      "title": "NORMAL decision during a labelled DDoS workload",
+      "group": "scenario-discrepancy",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h10",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "mcda": 1
+        },
+        "event_counts_by_state": {
+          "NORMAL": 1
+        },
+        "transitions": [
+          {
+            "layer": "mcda",
+            "state": "NORMAL",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "normal_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "confirming_domains": [],
+        "anomaly_threshold_confirmed": false,
+        "execution_requested_by_final_decision": false
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "INCORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The recorded NORMAL outcome follows the reported detector observations, but disagrees with known DDoS ground truth. This is a scenario false negative, not automatically a protocol violation."
+    },
+    {
+      "case_id": "h11",
+      "title": "Authorized live execution with confirmed disruption",
+      "group": "execution-outcome",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h11",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-live",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 1,
+          "executed_events": 1,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "execution_evidence": {
+          "flowblocker_request_succeeded": true,
+          "drop_rule_observed": true
+        },
+        "operational_evidence": {
+          "attack_disrupted": true,
+          "observations_available": true
+        }
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "EXECUTED",
+        "operational_effectiveness": "EFFECTIVE"
+      },
+      "oracle_rationale": "Valid authorization and a unique winner led to an observed DROP rule. The fixture explicitly provides disruption evidence, so execution and effectiveness are both supported."
+    },
+    {
+      "case_id": "h12",
+      "title": "Authorized execution attempt fails at FlowBlocker",
+      "group": "execution-outcome",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h12",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-live",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 1,
+          "executed_events": 0,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "execution_evidence": {
+          "flowblocker_request_succeeded": false,
+          "http_status": 503,
+          "reason": "FlowBlocker request failed"
+        },
+        "operational_evidence": {
+          "attack_disrupted": false,
+          "observations_available": true
+        }
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "FAILED",
+        "operational_effectiveness": "INEFFECTIVE"
+      },
+      "oracle_rationale": "The authorized agent followed the protocol but its recorded actuation request failed. The provided operational observations show no disruption; failure is not equivalent to a deliberate no-action decision."
+    },
+    {
+      "case_id": "h13",
+      "title": "VETOED reported without any veto evidence",
+      "group": "protocol-violation",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h13",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "VETOED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "VETOED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": false,
+        "claim_winners": [],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 0,
+          "agentic_authorized_events": 0,
+          "atomic_claim_winner_events": 0,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 0,
+          "executed_events": 0,
+          "would_execute_events": 0
+        },
+        "laboratory_context": {
+          "scenario": "unlabelled",
+          "ground_truth_available": false
+        },
+        "veto_domains": [],
+        "veto_proposals": [],
+        "policy_veto_received": false,
+        "execution_requested_by_final_decision": false
+      },
+      "expected": {
+        "protocol_consistency": "INCONSISTENT",
+        "scenario_correctness": "UNKNOWN",
+        "decision_stage": "FINAL",
+        "execution_status": "NOT_REQUESTED",
+        "operational_effectiveness": "NOT_APPLICABLE"
+      },
+      "oracle_rationale": "The fixture explicitly establishes that no relevant veto or veto proposal was received. VETOED contradicts that fact. No traffic ground truth is supplied."
+    },
+    {
+      "case_id": "h14",
+      "title": "Recorded actuation violates authority-dry-run",
+      "group": "protocol-violation",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h14",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-dry-run",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 1,
+          "executed_events": 1,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "execution_evidence": {
+          "flowblocker_request_succeeded": true,
+          "drop_rule_observed": true
+        },
+        "operational_evidence": {
+          "attack_disrupted": true,
+          "observations_available": true
+        }
+      },
+      "expected": {
+        "protocol_consistency": "INCONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "EXECUTED",
+        "operational_effectiveness": "EFFECTIVE"
+      },
+      "oracle_rationale": "Recorded actuation and a DROP rule violate the no-actuation dry-run invariant. EXECUTED reflects the supplied observation, not the intended mode; explicit disruption evidence supports effectiveness despite the protocol violation."
+    },
+    {
+      "case_id": "h15",
+      "title": "AGREED snapshot with missing quorum, authority and execution records",
+      "group": "insufficient-evidence",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h15",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "execution_mode": "unknown",
+        "normalized_facts": {
+          "agentic_agreed_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "unlabelled",
+          "ground_truth_available": false
+        }
+      },
+      "expected": {
+        "protocol_consistency": "INSUFFICIENT_EVIDENCE",
+        "scenario_correctness": "UNKNOWN",
+        "decision_stage": "FINAL",
+        "execution_status": "UNKNOWN",
+        "operational_effectiveness": "UNKNOWN"
+      },
+      "oracle_rationale": "The state name establishes a final decision, but missing required quorum, model, authority and execution records prevent verification. Missing values are not proof of zero attempts or deliberate suppression."
+    },
+    {
+      "case_id": "h16",
+      "title": "Execution confirmed, operational outcome not recorded",
+      "group": "insufficient-evidence",
+      "derived_from_development_template": false,
+      "evidence": {
+        "fixture_id": "h16",
+        "evidence_origin": "synthetic_protocol_fixture",
+        "scope": "local_agent_observation",
+        "flow": "10.64.2.7->10.85.4.19",
+        "event_count": 1,
+        "event_counts_by_layer": {
+          "agentic": 1
+        },
+        "event_counts_by_state": {
+          "AGREED": 1
+        },
+        "transitions": [
+          {
+            "layer": "agentic",
+            "state": "AGREED",
+            "observed_by": "172.24.5.10"
+          }
+        ],
+        "relevant_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "participating_domains": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "model_ids": [
+          "holt_residual:validation-20260915"
+        ],
+        "required_votes": 2,
+        "mitigate_votes": [
+          "172.24.5.10",
+          "172.25.8.10"
+        ],
+        "quorum_reached": true,
+        "claim_winners": [
+          "172.24.5.10"
+        ],
+        "execution_mode": "authority-live",
+        "normalized_facts": {
+          "agentic_agreed_events": 1,
+          "agentic_authorized_events": 1,
+          "atomic_claim_winner_events": 1,
+          "authorized_non_winner_events": 0,
+          "attempted_execution_events": 1,
+          "executed_events": 1,
+          "would_execute_events": 1
+        },
+        "laboratory_context": {
+          "scenario": "ddos",
+          "ground_truth_available": true
+        },
+        "authority_authorized": true,
+        "execution_requested_by_final_decision": true,
+        "local_agent_is_claim_winner": true,
+        "other_coordinator_elected": false,
+        "proposal_checks": {
+          "freshness_valid": true,
+          "topology_matches": true,
+          "model_identity_matches": true
+        },
+        "execution_evidence": {
+          "flowblocker_request_succeeded": true,
+          "drop_rule_observed": true
+        },
+        "operational_evidence": {
+          "observations_available": false
+        }
+      },
+      "expected": {
+        "protocol_consistency": "CONSISTENT",
+        "scenario_correctness": "CORRECT",
+        "decision_stage": "FINAL",
+        "execution_status": "EXECUTED",
+        "operational_effectiveness": "UNKNOWN"
+      },
+      "oracle_rationale": "Authorization, the unique claim and installed DROP rule support execution. Without post-execution traffic observations, effectiveness is UNKNOWN rather than automatically EFFECTIVE."
+    }
+  ]
+}

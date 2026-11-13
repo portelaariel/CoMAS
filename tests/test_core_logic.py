@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from collaborative_decision import score_collaborative_evidence
+from comas.detection import ResidualAnomalyDetector
+from comas.forecasting import HoltPredictor
 from offline_model import OfflineModel, inverse_transform_value, transform_value
 
 
@@ -31,8 +33,10 @@ class PredictorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.symbols = load_definitions(
             "flow_predictor_cnsm.py",
-            {"HoltPredictor", "ResidualAnomalyDetector", "SeriesState"},
+            {"SeriesState"},
             {
+                "HoltPredictor": HoltPredictor,
+                "ResidualAnomalyDetector": ResidualAnomalyDetector,
                 "Optional": Optional,
                 "Tuple": Tuple,
                 "Dict": Dict,
@@ -201,6 +205,33 @@ class PredictorTests(unittest.TestCase):
         self.assertEqual(anomaly["kind"], "THROUGHPUT_SPIKE")
         self.assertEqual(series.predictor.n, samples_before_attack)
 
+    def test_idle_and_priming_samples_record_once_after_history_append(self):
+        rows = []
+        case = self
+
+        class Recorder:
+            def record(self, key, meta, ts, observed, predicted, residual, z_score, anomaly):
+                case.assertEqual(series.history[-1], (ts, observed, predicted))
+                case.assertEqual((residual, z_score, anomaly), (0.0, None, False))
+                rows.append((ts, observed, predicted))
+
+        previous = self.symbols['_exporter']
+        self.symbols['_exporter'] = Recorder()
+        try:
+            model = OfflineModel(alpha=0.9, beta=0.0, transform='log1p',
+                                 residual_center=0.0, residual_scale=0.4,
+                                 z_threshold=5.0, created_at='test', series_priming_samples=2)
+            series = self.symbols['SeriesState']('flow:test', {'type': 'flow'}, model)
+            for counter, timestamp in [(0, 0.0), (1, 10.0), (1, 11.0),
+                                       (2, 12.0), (3, 13.0), (3, 14.0), (3, 15.0)]:
+                self.assertIsNone(series.ingest(counter, timestamp))
+            self.assertEqual(rows, [(10.0, 0.8, 0.0), (11.0, 0.0, 0.0),
+                                    (12.0, 8.0, 8.0), (13.0, 8.0, 8.0),
+                                    (14.0, 0.0, 0.0), (15.0, 0.0, 0.0)])
+            self.assertEqual(series.predictor.n, 0)
+        finally:
+            self.symbols['_exporter'] = previous
+
     def test_repeated_anomalies_are_aggregated_during_cooldown(self):
         class FakeMitigator:
             def __init__(self):
@@ -311,6 +342,46 @@ class PredictorTests(unittest.TestCase):
         mismatch = score([evidence("domain-0"), evidence("domain-1", model="model-b")],
                          **kwargs)
         self.assertEqual(mismatch["decision"], "MODEL_MISMATCH")
+
+    def test_collaborative_score_uses_recorded_precision_at_decision_threshold(self):
+        def evidence(severity):
+            return {
+                "cid": "domain-0",
+                "ts_ns": 10_000_000_000,
+                "z_score": 1.0 + 2.0 * severity,
+                "threshold": 1.0,
+                "observed_bps": 10.0,
+                "predicted_bps": 1.0,
+                "persistence_windows": 1,
+                "model_reliability": 1.0,
+                "flow_specificity": 1.0,
+                "model_id": "model-a",
+            }
+
+        kwargs = {
+            "now_ns_value": 10_000_000_000,
+            "expected_domains": 1,
+            "min_domains": 1,
+            "weights": {"severity": 1.0},
+            "freshness_s": 12.0,
+            "persistence_windows": 1,
+            "rate_ratio_max": 10.0,
+            "suspect_threshold": 0.4,
+            "alert_threshold": 0.6,
+            "decision_threshold": 0.8,
+        }
+
+        rounded_to_threshold = score_collaborative_evidence(
+            [evidence(0.7999996)], **kwargs
+        )
+        self.assertEqual(rounded_to_threshold["score"], 0.8)
+        self.assertEqual(rounded_to_threshold["decision"], "MITIGATE")
+
+        remains_below_threshold = score_collaborative_evidence(
+            [evidence(0.7999994)], **kwargs
+        )
+        self.assertEqual(remains_below_threshold["score"], 0.799999)
+        self.assertEqual(remains_below_threshold["decision"], "CORROBORATED")
 
     def test_collaborative_engine_defers_local_mitigation(self):
         class FakeMitigator:
@@ -746,6 +817,8 @@ class CollaborativeManagerTests(unittest.TestCase):
                     globals_dict[name] = value
 
         decision = manager.decisions[flow]
+        self.assertEqual(decision["published_ns"], 10_000_000_000)
+        self.assertGreaterEqual(decision["published_ns"], decision["evaluated_ns"])
         self.assertIsNone(decision["claim"])
         self.assertFalse(decision["mitigation"]["attempted"])
         self.assertEqual(decision["mitigation"]["owner"], "agentic")

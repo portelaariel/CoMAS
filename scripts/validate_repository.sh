@@ -25,11 +25,58 @@ required_files=(
   config/runtime.env
   Dockerfile.flow_predictor
   flow_predictor_cnsm.py
+  comas/__init__.py
+  comas/forecasting/__init__.py
+  comas/forecasting/holt.py
+  comas/detection/__init__.py
+  comas/detection/residual.py
+  comas/telemetry/__init__.py
+  comas/telemetry/history.py
+  scripts/test_runtime_image.sh
+  tests/runtime_image_smoke.py
+  experiments/benchmark_residual_scoring.py
   agent_protocol.py
   domain_agent.py
   agent_authority.py
   collaborative_decision.py
   offline_model.py
+  backtest_sla_risk.py
+  predictive_sla_validation.py
+  predictive_sla_validation_v2.py
+  predictive_sla_validation_v3.py
+  predictive_sla_validation_v4.py
+  predictive_sla_horizon_sensitivity.py
+  predictive_sla_preventive_entry_study.py
+  predictive_sla_diagnostics.py
+  predictive_sla_coverage_diagnostics.py
+  predictive_sla_shadow.py
+  predictive_sla_shadow_protocol.py
+  predictive_sla_shadow_v2.py
+  predictive_sla_shadow_protocol_v2.py
+  predictive_sla_shadow_diagnostics.py
+  predictive_sla_shadow_ramp.py
+  predictive_sla_shadow_ramp_analysis.py
+  predictive_sla_shadow_fast_ramp.py
+  predictive_sla_shadow_controls.py
+  predictive_sla_shadow_control_analysis.py
+  predictive_sla_shadow_report.py
+  predictive_sla_shadow_alert_trace.py
+  predictive_sla_damping_study.py
+  predictive_sla_damped_replay.py
+  scripts/collect_qos_validation_campaign.py
+  scripts/collect_qos_validation_campaign_v2.py
+  scripts/collect_qos_validation_campaign_v3.py
+  scripts/collect_qos_validation_campaign_v4.py
+  scripts/recover_qos_runtime.py
+  qos_holt.py
+  qos_damped_holt.py
+  qos_warning_selection.py
+  qos_telemetry.py
+  sla_risk.py
+  sla_episode_evaluation.py
+  train_qos_holt_model.py
+  train_qos_damped_holt_model.py
+  train_qos_warning_model.py
   train_offline_model.py
   prepare_cicddos2019.py
   evaluate_offline_model.py
@@ -50,6 +97,14 @@ required_files=(
   experiments/evaluate_agentic_live_campaign.py
   experiments/evaluate_agentic_live_replication.py
   experiments/package_agentic_live_replication.py
+  llm_auditor/__init__.py
+  llm_auditor/__main__.py
+  llm_auditor/cli.py
+  llm_auditor/core.py
+  llm_auditor/ollama.py
+  llm_auditor/protocol_campaign.py
+  llm_auditor/validation_dataset.py
+  llm_auditor/fixtures/holdout_v1.json
   scripts/run_collaborative_benchmark.sh
   scripts/run_agentic_runtime_faults.sh
   scripts/run_agentic_authority_dry_run.sh
@@ -83,6 +138,8 @@ source config/runtime.env
 [[ "$PREDICTOR_AGENT_PROPOSAL_THRESHOLD" == "0.65" ]]
 [[ "$PREDICTOR_AGENT_CLAIM_TTL_S" == "60" ]]
 [[ "$PREDICTOR_AGENTIC_LIVE_ACTUATION" == "false" ]]
+[[ "$PREDICTOR_QOS_TELEMETRY_ENABLED" == "false" ]]
+[[ "$PREDICTOR_QOS_PORT_CAPACITIES_JSON" == "{}" ]]
 
 override_config="$(ETCD_SUBNET=250 ETCD_NODES=2 bash -c '
   source config/runtime.env
@@ -101,10 +158,14 @@ expect_invalid_input() {
 }
 
 expect_invalid_input bash deploy_flow_predictor.sh 0 true
+expect_invalid_input bash scripts/test_runtime_image.sh
 expect_invalid_input bash deploy_flow_predictor.sh 2 invalid
 expect_invalid_input env PREDICTOR_COLLABORATION_ENABLED=true \
   PREDICTOR_COLLAB_MIN_DOMAINS=3 bash deploy_flow_predictor.sh 2 true
 expect_invalid_input env PREDICTOR_FLOW_IDLE_RESET_SAMPLES=0 \
+  bash deploy_flow_predictor.sh 2 true
+expect_invalid_input env PREDICTOR_QOS_TELEMETRY_ENABLED=true \
+  PREDICTOR_QOS_PORT_CAPACITIES_JSON='{}' \
   bash deploy_flow_predictor.sh 2 true
 expect_invalid_input env PREDICTOR_AGENTIC_ENABLED=true \
   PREDICTOR_COLLABORATION_ENABLED=false bash deploy_flow_predictor.sh 2 true

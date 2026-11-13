@@ -1,0 +1,15 @@
+# The root build context is used by Dockerfile.flow_predictor.
+# Runtime data, tests, Git history and local output are not image inputs.
+*
+!Dockerfile.flow_predictor
+!flow_predictor_cnsm.py
+!offline_model.py
+!collaborative_decision.py
+!agent_protocol.py
+!domain_agent.py
+!agent_authority.py
+!qos_telemetry.py
+!comas/
+!comas/**
+**/__pycache__/
+**/*.py[cod]

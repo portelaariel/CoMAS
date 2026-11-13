@@ -332,6 +332,67 @@ class BenchmarkToolTests(unittest.TestCase):
             self.assertEqual(report["claim_winner_domains"], ["domain-0"])
             self.assertEqual(report["would_execute_domains"], ["domain-0"])
 
+            # Repeated polling preserves older authorized AGREED events. A
+            # mismatch in an earlier observation must not override the newer
+            # per-domain comparison that agrees at authority evaluation.
+            for item in rows:
+                current = item["agentic"]["decisions"][0]
+                historical = json.loads(json.dumps(current))
+                historical["event_id"] += ":historical-mismatch"
+                historical["state_entered_ns"] = attack_ns + 300_000_000
+                historical["authority"]["claim"]["won"] = False
+                historical["authority"]["mcda_comparison"].update({
+                    "matches": False,
+                    "captured_ns": attack_ns + 300_000_000,
+                    "mcda": {
+                        "decision": "CORROBORATED",
+                        "evaluated_ns": attack_ns + 250_000_000,
+                    },
+                })
+                historical["execution"]["would_execute"] = False
+                item["agentic"]["decision_events"] = [historical]
+            (run_dir / "timeline.ndjson").write_text(
+                "".join(json.dumps(item) + "\n" for item in rows),
+                encoding="utf-8",
+            )
+            canonical_mcda = evaluate_authority_run(run_dir)
+            self.assertTrue(canonical_mcda["aggregate"]["safe"])
+            self.assertTrue(canonical_mcda["checks"]["agent_matches_mcda"])
+
+            # The inverse ordering must remain unsafe: a newer mismatch cannot
+            # be hidden by an older matching observation.
+            for item in rows:
+                comparison = item["agentic"]["decisions"][0]["authority"][
+                    "mcda_comparison"
+                ]
+                comparison.update({
+                    "matches": False,
+                    "captured_ns": attack_ns + 700_000_000,
+                    "mcda": {
+                        "decision": "CORROBORATED",
+                        "evaluated_ns": attack_ns + 650_000_000,
+                    },
+                })
+            (run_dir / "timeline.ndjson").write_text(
+                "".join(json.dumps(item) + "\n" for item in rows),
+                encoding="utf-8",
+            )
+            latest_mismatch = evaluate_authority_run(run_dir)
+            self.assertFalse(latest_mismatch["aggregate"]["safe"])
+            self.assertFalse(latest_mismatch["checks"]["agent_matches_mcda"])
+            for item in rows:
+                item["agentic"]["decision_events"] = []
+                item["agentic"]["decisions"][0]["authority"][
+                    "mcda_comparison"
+                ].update({
+                    "matches": True,
+                    "captured_ns": attack_ns + 450_000_000,
+                    "mcda": {
+                        "decision": "MITIGATE",
+                        "evaluated_ns": attack_ns + 400_000_000,
+                    },
+                })
+
             # A comparação é evidência experimental, não parte do gate de
             # autoridade. Se a decisão corrente do MCDA já avançou, o
             # avaliador deve correlacionar o episódio preservado no histórico.

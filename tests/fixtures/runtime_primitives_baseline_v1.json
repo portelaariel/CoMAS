@@ -1,0 +1,957 @@
+{
+  "schema_version": "comas-runtime-primitives-regression/1.0",
+  "reference_commit": "40b60906dfa299309fd423022bb00225666d7ff6",
+  "reference_source_sha256": "daf64f7f35383d5e268d93d521291a67db39894b5a544b0e8ea29ff6b551e81f",
+  "scope": "Observed outputs of the unmodified traffic Holt and residual detector; not predictive-SLA or network effectiveness validation.",
+  "holt": [
+    {
+      "name": "identity_ramp",
+      "settings": {
+        "alpha": 0.5,
+        "beta": 0.5,
+        "transform": "identity"
+      },
+      "initial": {
+        "level": null,
+        "trend": 0.0,
+        "n": 0,
+        "forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "transformed_forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "trend_bps": 0.0
+      },
+      "rows": [
+        {
+          "observed": 10.0,
+          "prediction_before_update": 0.0,
+          "residual": 10.0,
+          "after": {
+            "level": 10.0,
+            "trend": 0.0,
+            "n": 1,
+            "forecasts": [
+              10.0,
+              10.0,
+              10.0
+            ],
+            "transformed_forecasts": [
+              10.0,
+              10.0,
+              10.0
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 14.0,
+          "prediction_before_update": 10.0,
+          "residual": 4.0,
+          "after": {
+            "level": 12.0,
+            "trend": 1.0,
+            "n": 2,
+            "forecasts": [
+              12.0,
+              13.0,
+              15.0
+            ],
+            "transformed_forecasts": [
+              12.0,
+              13.0,
+              15.0
+            ],
+            "trend_bps": 1.0
+          }
+        },
+        {
+          "observed": 18.0,
+          "prediction_before_update": 13.0,
+          "residual": 5.0,
+          "after": {
+            "level": 15.5,
+            "trend": 2.25,
+            "n": 3,
+            "forecasts": [
+              15.5,
+              17.75,
+              22.25
+            ],
+            "transformed_forecasts": [
+              15.5,
+              17.75,
+              22.25
+            ],
+            "trend_bps": 2.25
+          }
+        },
+        {
+          "observed": 16.0,
+          "prediction_before_update": 17.75,
+          "residual": -1.75,
+          "after": {
+            "level": 16.875,
+            "trend": 1.8125,
+            "n": 4,
+            "forecasts": [
+              16.875,
+              18.6875,
+              22.3125
+            ],
+            "transformed_forecasts": [
+              16.875,
+              18.6875,
+              22.3125
+            ],
+            "trend_bps": 1.8125
+          }
+        },
+        {
+          "observed": 0.0,
+          "prediction_before_update": 18.6875,
+          "residual": -18.6875,
+          "after": {
+            "level": 9.34375,
+            "trend": -2.859375,
+            "n": 5,
+            "forecasts": [
+              9.34375,
+              6.484375,
+              0.765625
+            ],
+            "transformed_forecasts": [
+              9.34375,
+              6.484375,
+              0.765625
+            ],
+            "trend_bps": -2.859375
+          }
+        },
+        {
+          "observed": 6.0,
+          "prediction_before_update": 6.484375,
+          "residual": -0.484375,
+          "after": {
+            "level": 6.2421875,
+            "trend": -2.98046875,
+            "n": 6,
+            "forecasts": [
+              6.2421875,
+              3.26171875,
+              0.0
+            ],
+            "transformed_forecasts": [
+              6.2421875,
+              3.26171875,
+              -2.69921875
+            ],
+            "trend_bps": -2.98046875
+          }
+        },
+        {
+          "observed": 6.0,
+          "prediction_before_update": 3.26171875,
+          "residual": 2.73828125,
+          "after": {
+            "level": 4.630859375,
+            "trend": -2.2958984375,
+            "n": 7,
+            "forecasts": [
+              4.630859375,
+              2.3349609375,
+              0.0
+            ],
+            "transformed_forecasts": [
+              4.630859375,
+              2.3349609375,
+              -2.2568359375
+            ],
+            "trend_bps": -2.2958984375
+          }
+        },
+        {
+          "observed": 30.0,
+          "prediction_before_update": 2.3349609375,
+          "residual": 27.6650390625,
+          "after": {
+            "level": 16.16748046875,
+            "trend": 4.620361328125,
+            "n": 8,
+            "forecasts": [
+              16.16748046875,
+              20.787841796875,
+              30.028564453125
+            ],
+            "transformed_forecasts": [
+              16.16748046875,
+              20.787841796875,
+              30.028564453125
+            ],
+            "trend_bps": 4.620361328125
+          }
+        }
+      ]
+    },
+    {
+      "name": "log1p_traffic",
+      "settings": {
+        "alpha": 0.9,
+        "beta": 0.0,
+        "transform": "log1p"
+      },
+      "initial": {
+        "level": null,
+        "trend": 0.0,
+        "n": 0,
+        "forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "transformed_forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "trend_bps": 0.0
+      },
+      "rows": [
+        {
+          "observed": 1000000.0,
+          "prediction_before_update": 0.0,
+          "residual": 13.815511557963774,
+          "after": {
+            "level": 13.815511557963774,
+            "trend": 0.0,
+            "n": 1,
+            "forecasts": [
+              999999.9999999997,
+              999999.9999999997,
+              999999.9999999997
+            ],
+            "transformed_forecasts": [
+              13.815511557963774,
+              13.815511557963774,
+              13.815511557963774
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 1050000.0,
+          "prediction_before_update": 999999.9999999997,
+          "residual": 0.04879011655043186,
+          "after": {
+            "level": 13.859422662859162,
+            "trend": 0.0,
+            "n": 2,
+            "forecasts": [
+              1044889.5100909334,
+              1044889.5100909334,
+              1044889.5100909334
+            ],
+            "transformed_forecasts": [
+              13.859422662859162,
+              13.859422662859162,
+              13.859422662859162
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 990000.0,
+          "prediction_before_update": 1044889.5100909334,
+          "residual": -0.05396143064788994,
+          "after": {
+            "level": 13.810857375276061,
+            "trend": 0.0,
+            "n": 3,
+            "forecasts": [
+              995356.6265939979,
+              995356.6265939979,
+              995356.6265939979
+            ],
+            "transformed_forecasts": [
+              13.810857375276061,
+              13.810857375276061,
+              13.810857375276061
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 100000000.0,
+          "prediction_before_update": 995356.6265939979,
+          "residual": 4.609823378676303,
+          "after": {
+            "level": 17.959698416084734,
+            "trend": 0.0,
+            "n": 4,
+            "forecasts": [
+              63066381.247412615,
+              63066381.247412615,
+              63066381.247412615
+            ],
+            "transformed_forecasts": [
+              17.959698416084734,
+              17.959698416084734,
+              17.959698416084734
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 0.0,
+          "prediction_before_update": 63066381.247412615,
+          "residual": -17.959698416084734,
+          "after": {
+            "level": 1.795969841608473,
+            "trend": 0.0,
+            "n": 5,
+            "forecasts": [
+              5.025315490706147,
+              5.025315490706147,
+              5.025315490706147
+            ],
+            "transformed_forecasts": [
+              1.795969841608473,
+              1.795969841608473,
+              1.795969841608473
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 1000000.0,
+          "prediction_before_update": 5.025315490706147,
+          "residual": 12.0195417163553,
+          "after": {
+            "level": 12.613557386328244,
+            "trend": 0.0,
+            "n": 6,
+            "forecasts": [
+              300605.5020565058,
+              300605.5020565058,
+              300605.5020565058
+            ],
+            "transformed_forecasts": [
+              12.613557386328244,
+              12.613557386328244,
+              12.613557386328244
+            ],
+            "trend_bps": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": "negative_projection_clamps_at_zero",
+      "settings": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "transform": "identity"
+      },
+      "initial": {
+        "level": null,
+        "trend": 0.0,
+        "n": 0,
+        "forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "transformed_forecasts": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "trend_bps": 0.0
+      },
+      "rows": [
+        {
+          "observed": 10.0,
+          "prediction_before_update": 0.0,
+          "residual": 10.0,
+          "after": {
+            "level": 10.0,
+            "trend": 0.0,
+            "n": 1,
+            "forecasts": [
+              10.0,
+              10.0,
+              10.0
+            ],
+            "transformed_forecasts": [
+              10.0,
+              10.0,
+              10.0
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 2.0,
+          "prediction_before_update": 10.0,
+          "residual": -8.0,
+          "after": {
+            "level": 2.0,
+            "trend": -8.0,
+            "n": 2,
+            "forecasts": [
+              2.0,
+              0.0,
+              0.0
+            ],
+            "transformed_forecasts": [
+              2.0,
+              -6.0,
+              -22.0
+            ],
+            "trend_bps": -2.0
+          }
+        },
+        {
+          "observed": 1.0,
+          "prediction_before_update": 0.0,
+          "residual": 1.0,
+          "after": {
+            "level": 1.0,
+            "trend": -1.0,
+            "n": 3,
+            "forecasts": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "transformed_forecasts": [
+              1.0,
+              0.0,
+              -2.0
+            ],
+            "trend_bps": -1.0
+          }
+        },
+        {
+          "observed": 0.0,
+          "prediction_before_update": 0.0,
+          "residual": 0.0,
+          "after": {
+            "level": 0.0,
+            "trend": -1.0,
+            "n": 4,
+            "forecasts": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "transformed_forecasts": [
+              0.0,
+              -1.0,
+              -3.0
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": -1.0,
+          "prediction_before_update": 0.0,
+          "residual": 0.0,
+          "after": {
+            "level": 0.0,
+            "trend": 0.0,
+            "n": 5,
+            "forecasts": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "transformed_forecasts": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "trend_bps": 0.0
+          }
+        },
+        {
+          "observed": 4.0,
+          "prediction_before_update": 0.0,
+          "residual": 4.0,
+          "after": {
+            "level": 4.0,
+            "trend": 4.0,
+            "n": 6,
+            "forecasts": [
+              4.0,
+              8.0,
+              16.0
+            ],
+            "transformed_forecasts": [
+              4.0,
+              8.0,
+              16.0
+            ],
+            "trend_bps": 4.0
+          }
+        }
+      ]
+    }
+  ],
+  "detector": [
+    {
+      "name": "adaptive_mad_and_window",
+      "settings": {
+        "window": 5,
+        "z_threshold": 4.0,
+        "warmup": 3
+      },
+      "rows": [
+        {
+          "residual": 0.0,
+          "ready_before": false,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": false,
+          "residual_window": [
+            0.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 1.0,
+          "ready_before": false,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": false,
+          "residual_window": [
+            0.0,
+            1.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": -1.0,
+          "ready_before": false,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.0,
+            1.0,
+            -1.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.5,
+          "ready_before": true,
+          "z_score": 0.3372453797382976,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.0,
+            1.0,
+            -1.0,
+            0.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 10.0,
+          "ready_before": true,
+          "z_score": 12.815324430055309,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [
+            0.0,
+            1.0,
+            -1.0,
+            0.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": -10.0,
+          "ready_before": true,
+          "z_score": -14.164305949008499,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [
+            0.0,
+            1.0,
+            -1.0,
+            0.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.25,
+          "ready_before": true,
+          "z_score": -0.3372453797382976,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.0,
+            1.0,
+            -1.0,
+            0.5,
+            0.25
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.75,
+          "ready_before": true,
+          "z_score": 1.3489815189531904,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0,
+            -1.0,
+            0.5,
+            0.25,
+            0.75
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": -0.5,
+          "ready_before": true,
+          "z_score": -2.697963037906381,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            -1.0,
+            0.5,
+            0.25,
+            0.75,
+            -0.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.2,
+          "ready_before": true,
+          "z_score": -0.0674490759476595,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.5,
+            0.25,
+            0.75,
+            -0.5,
+            0.2
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.1,
+          "ready_before": true,
+          "z_score": -0.40469445568595713,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.25,
+            0.75,
+            -0.5,
+            0.2,
+            0.1
+          ],
+          "threshold": 4.0
+        }
+      ]
+    },
+    {
+      "name": "fixed_asymmetric_strict_boundaries",
+      "settings": {
+        "window": 5,
+        "z_threshold": 5.0,
+        "drop_z_threshold": 20.0,
+        "warmup": 0,
+        "fixed_center": 0.0,
+        "fixed_scale": 1.0
+      },
+      "rows": [
+        {
+          "residual": 0.0,
+          "ready_before": true,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 5.0
+        },
+        {
+          "residual": 5.0,
+          "ready_before": true,
+          "z_score": 5.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 5.0
+        },
+        {
+          "residual": 5.000001,
+          "ready_before": true,
+          "z_score": 5.000001,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 5.0
+        },
+        {
+          "residual": -20.0,
+          "ready_before": true,
+          "z_score": -20.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 20.0
+        },
+        {
+          "residual": -20.000001,
+          "ready_before": true,
+          "z_score": -20.000001,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 20.0
+        },
+        {
+          "residual": 3.0,
+          "ready_before": true,
+          "z_score": 3.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 5.0
+        },
+        {
+          "residual": -3.0,
+          "ready_before": true,
+          "z_score": -3.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 20.0
+        }
+      ]
+    },
+    {
+      "name": "fixed_scale_floor",
+      "settings": {
+        "window": 5,
+        "z_threshold": 4.0,
+        "warmup": 0,
+        "fixed_center": 2.0,
+        "fixed_scale": 0.0
+      },
+      "rows": [
+        {
+          "residual": 2.0,
+          "ready_before": true,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 4.0
+        },
+        {
+          "residual": 2.000003,
+          "ready_before": true,
+          "z_score": 2.9999999999752447,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 4.0
+        },
+        {
+          "residual": 2.00001,
+          "ready_before": true,
+          "z_score": 10.000000000065512,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 4.0
+        },
+        {
+          "residual": 1.99999,
+          "ready_before": true,
+          "z_score": -10.000000000065512,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 4.0
+        },
+        {
+          "residual": 2.0,
+          "ready_before": true,
+          "z_score": 0.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [],
+          "threshold": 4.0
+        }
+      ]
+    },
+    {
+      "name": "offline_then_online_adaptation",
+      "settings": {
+        "window": 5,
+        "z_threshold": 4.0,
+        "warmup": 3,
+        "fixed_center": 0.0,
+        "fixed_scale": 1.0,
+        "online_adaptation": true
+      },
+      "rows": [
+        {
+          "residual": 1.0,
+          "ready_before": true,
+          "z_score": 1.0,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 1.5,
+          "ready_before": true,
+          "z_score": 1.5,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0,
+            1.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.5,
+          "ready_before": true,
+          "z_score": 0.5,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0,
+            1.5,
+            0.5
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.8,
+          "ready_before": true,
+          "z_score": -0.269796303790638,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0,
+            1.5,
+            0.5,
+            0.8
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": -0.2,
+          "ready_before": true,
+          "z_score": -1.6187778227438285,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.0,
+            1.5,
+            0.5,
+            0.8,
+            -0.2
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 2.0,
+          "ready_before": true,
+          "z_score": 2.6979630379063804,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            1.5,
+            0.5,
+            0.8,
+            -0.2,
+            2.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 20.0,
+          "ready_before": true,
+          "z_score": 18.500317974215182,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [
+            1.5,
+            0.5,
+            0.8,
+            -0.2,
+            2.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": -20.0,
+          "ready_before": true,
+          "z_score": -20.042011138733116,
+          "anomaly": true,
+          "ready_after": true,
+          "residual_window": [
+            1.5,
+            0.5,
+            0.8,
+            -0.2,
+            2.0
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 1.2,
+          "ready_before": true,
+          "z_score": 0.38542329112948287,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.5,
+            0.8,
+            -0.2,
+            2.0,
+            1.2
+          ],
+          "threshold": 4.0
+        },
+        {
+          "residual": 0.4,
+          "ready_before": true,
+          "z_score": -0.6744907594765954,
+          "anomaly": false,
+          "ready_after": true,
+          "residual_window": [
+            0.8,
+            -0.2,
+            2.0,
+            1.2,
+            0.4
+          ],
+          "threshold": 4.0
+        }
+      ]
+    }
+  ]
+}

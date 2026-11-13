@@ -122,6 +122,7 @@ class RuntimeWiringTests(unittest.TestCase):
     def test_agent_modules_and_endpoint_are_wired_into_runtime(self):
         self.assertIn("agent_protocol.py", self.dockerfile)
         self.assertIn("domain_agent.py", self.dockerfile)
+        self.assertIn("qos_telemetry.py", self.dockerfile)
         self.assertIn('/predictor/agent', self.monitor_source)
         self.assertIn('"agentic": agentic', self.monitor_source)
         self.assertIn('PREDICTOR_AGENTIC_ENABLED="$AGENTIC"', self.benchmark_source)

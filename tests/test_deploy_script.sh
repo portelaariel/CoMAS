@@ -86,8 +86,19 @@ grep -q -- '-e AGENTIC_MODE=shadow' "$COMMAND_LOG"
 grep -q -- '-e AGENT_REQUIRED_VOTES=2' "$COMMAND_LOG"
 grep -q -- '-e AGENT_CLAIM_TTL_S=60' "$COMMAND_LOG"
 grep -q -- '-e AGENTIC_LIVE_ACTUATION=false' "$COMMAND_LOG"
+grep -q -- '-e QOS_TELEMETRY_ENABLED=false' "$COMMAND_LOG"
 grep -q -- '-e DRY_RUN=true' "$COMMAND_LOG"
 grep -q -- '-p 6060:6060' "$COMMAND_LOG"
+
+PREDICTION_HISTORY_ROOT="$TEST_TMP/history-qos" \
+PREDICTOR_QOS_TELEMETRY_ENABLED=true \
+PREDICTOR_QOS_PORT_CAPACITIES_JSON='{"1:1":100000000}' \
+  bash "$PROJECT_ROOT/deploy_flow_predictor.sh" 1 true >/dev/null
+
+grep -q -- '-e QOS_TELEMETRY_ENABLED=true' "$COMMAND_LOG"
+grep -q -- '-e QOS_PORT_CAPACITIES_JSON={"1:1":100000000}' "$COMMAND_LOG"
+grep -q -- '-v '"$TEST_TMP/history-qos/qos_history_domain0"':/app/qos_history' \
+  "$COMMAND_LOG"
 
 CREATE_LINE="$(grep -n '^create ' "$COMMAND_LOG" | head -n 1 | cut -d: -f1)"
 CONNECT_LINE="$(grep -n '^network-connect ' "$COMMAND_LOG" | head -n 1 | cut -d: -f1)"

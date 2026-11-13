@@ -60,6 +60,13 @@ ENV (mesmo padrão dos demais serviços):
   EXPORT_DIR            prediction_history
   EXPORT_PREFIXES       flow:      # csv; use "flow:,port:" p/ incluir portas
   EXPORT_FLUSH_EVERY    10         # flush a cada N linhas por série
+
+  # Dataset QoS para previsão de risco de SLA (somente observação):
+  QOS_TELEMETRY_ENABLED false
+  QOS_PORT_CAPACITIES_JSON '{}'    # capacidade direcional: {"dpid:port": bps}
+  QOS_DATASET_DIR       qos_history
+  QOS_DATASET_FLUSH_EVERY 10
+  QOS_MAX_GAP_FACTOR    2.5        # lacuna > polling * fator é marcada inválida
 """
 
 import os
@@ -67,18 +74,19 @@ import json
 import math
 import time
 import uuid
-import glob
 import hashlib
 import atexit
 import logging
 import threading
-from datetime import datetime
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from flask import Flask, jsonify, request
 
+from comas.detection import ResidualAnomalyDetector
+from comas.forecasting import HoltPredictor
+from comas.telemetry import PredictionHistoryExporter
 from agent_protocol import agent_flow_hash
 from agent_authority import (
     claim_agentic_mitigation,
@@ -96,6 +104,11 @@ from offline_model import (
     inverse_transform_value,
     load_offline_model,
     transform_value,
+)
+from qos_telemetry import (
+    PortCapacityRegistry,
+    QosDatasetExporter,
+    QosTelemetryManager,
 )
 
 # ---------------- Configuração via ENV ----------------
@@ -228,6 +241,19 @@ EXPORT_PREFIXES    = tuple(p.strip() for p in
                            os.environ.get("EXPORT_PREFIXES", "flow:").split(",") if p.strip())
 EXPORT_FLUSH_EVERY = int(os.environ.get("EXPORT_FLUSH_EVERY", "10"))  # flush a cada N linhas/série
 
+# --- Dataset de utilização de portas para calibração SLA (opt-in) ---
+QOS_TELEMETRY_ENABLED = (
+    os.environ.get("QOS_TELEMETRY_ENABLED", "false").lower() == "true"
+)
+QOS_PORT_CAPACITIES_JSON = os.environ.get("QOS_PORT_CAPACITIES_JSON", "{}").strip()
+QOS_DATASET_DIR = os.environ.get("QOS_DATASET_DIR", "qos_history")
+QOS_DATASET_FLUSH_EVERY = int(os.environ.get("QOS_DATASET_FLUSH_EVERY", "10"))
+QOS_MAX_GAP_FACTOR = float(os.environ.get("QOS_MAX_GAP_FACTOR", "2.5"))
+if (not math.isfinite(QOS_MAX_GAP_FACTOR) or QOS_MAX_GAP_FACTOR <= 1.0):
+    raise ValueError("QOS_MAX_GAP_FACTOR deve ser finito e maior que 1")
+if QOS_DATASET_FLUSH_EVERY < 1:
+    raise ValueError("QOS_DATASET_FLUSH_EVERY deve ser positivo")
+
 # ---------------- Logging (padrão [METRICS] do projeto) ----------------
 logging.basicConfig(level=logging.INFO,
                     format="%(levelname)s:FlowPredictor:%(asctime)s - %(message)s")
@@ -327,245 +353,14 @@ if ETCD_ENDPOINTS:
         _etcd = None
 
 
-# =====================================================================
-# 1) PREDIÇÃO — Holt (nível + tendência), leve e adequado a streaming
-# =====================================================================
-class HoltPredictor:
-    """
-    Suavização exponencial dupla (Holt). Escolhida por:
-      - custo O(1) por amostra (escala para milhares de séries);
-      - captura nível E tendência (melhor que EWMA puro em rampas de vazão);
-      - sem dependências pesadas (funciona em qualquer topologia/hardware).
-    A interface (update/predict) é pluggável: pode ser trocada por ARIMA/LSTM
-    sem alterar o restante do módulo.
-    """
-
-    def __init__(self, alpha: float = 0.35, beta: float = 0.10,
-                 transform: str = "identity"):
-        self.alpha = alpha
-        self.beta = beta
-        self.transform = transform
-        self.level: Optional[float] = None
-        self.trend: float = 0.0
-        self.n = 0
-
-    def update(self, value: float) -> None:
-        transformed = transform_value(value, self.transform)
-        if self.level is None:
-            self.level = transformed
-            self.trend = 0.0
-        else:
-            prev_level = self.level
-            self.level = (self.alpha * transformed
-                          + (1 - self.alpha) * (self.level + self.trend))
-            self.trend = self.beta * (self.level - prev_level) + (1 - self.beta) * self.trend
-        self.n += 1
-
-    def predict_transformed(self, horizon: int = 1) -> float:
-        if self.level is None:
-            return transform_value(0.0, self.transform)
-        return self.level + horizon * self.trend
-
-    def predict(self, horizon: int = 1) -> float:
-        if self.level is None:
-            return 0.0
-        return inverse_transform_value(self.predict_transformed(horizon), self.transform)
-
-    def residual(self, observed: float, predicted: float) -> float:
-        """Resíduo no espaço em que o modelo offline foi calibrado."""
-        return (transform_value(observed, self.transform)
-                - transform_value(predicted, self.transform))
-
-    @property
-    def trend_bps(self) -> float:
-        if self.level is None:
-            return 0.0
-        return self.predict(1) - self.predict(0)
-
-
-# =====================================================================
-# 2) DETECÇÃO — z-score robusto (MAD) sobre resíduos de predição
-# =====================================================================
-class ResidualAnomalyDetector:
-    """
-    Mantém janela de resíduos (observado - predito). Usa mediana + MAD
-    (Median Absolute Deviation) para robustez contra outliers passados —
-    um pico anômalo anterior não "envenena" a estatística como faria com
-    média/desvio-padrão simples.
-    """
-
-    MAD_K = 1.4826  # fator de consistência para distribuição normal
-
-    def __init__(self, window: int, z_threshold: float, warmup: int,
-                 fixed_center: Optional[float] = None,
-                 fixed_scale: Optional[float] = None,
-                 online_adaptation: bool = False,
-                 drop_z_threshold: Optional[float] = None):
-        self.residuals: deque = deque(maxlen=window)
-        # z_threshold permanece como alias do lado positivo para não quebrar
-        # clientes e modelos legados que usavam um único valor simétrico.
-        self.z_threshold = z_threshold
-        self.drop_z_threshold = (z_threshold if drop_z_threshold is None
-                                 else drop_z_threshold)
-        self.warmup = warmup
-        self.fixed_center = fixed_center
-        self.fixed_scale = fixed_scale
-        self.online_adaptation = online_adaptation
-
-    @property
-    def offline_calibrated(self) -> bool:
-        return self.fixed_center is not None and self.fixed_scale is not None
-
-    @property
-    def ready(self) -> bool:
-        return self.offline_calibrated or len(self.residuals) >= self.warmup
-
-    def _center_scale(self) -> Tuple[float, float]:
-        use_offline = (self.offline_calibrated
-                       and (not self.online_adaptation
-                            or len(self.residuals) < max(3, self.warmup)))
-        if use_offline:
-            return float(self.fixed_center), max(float(self.fixed_scale), 1e-6)
-
-        data = sorted(self.residuals)
-        median = data[len(data) // 2]
-        mad = sorted(abs(x - median) for x in data)[len(data) // 2]
-        return median, max(self.MAD_K * mad, 1e-6)
-
-    def score(self, residual: float) -> Tuple[float, bool]:
-        """Retorna (z_score, is_anomaly) usando calibração offline ou warmup."""
-        if not self.ready:
-            self.residuals.append(residual)
-            return 0.0, False
-
-        median, sigma = self._center_scale()
-        z = (residual - median) / sigma
-
-        is_anom = z > self.z_threshold or z < -self.drop_z_threshold
-        # Resíduos anômalos NÃO entram na janela (evita mascarar ataques prolongados)
-        if not is_anom and (not self.offline_calibrated or self.online_adaptation):
-            self.residuals.append(residual)
-        return z, is_anom
-
-    def threshold_for(self, z_score: float) -> float:
-        return self.z_threshold if z_score >= 0.0 else self.drop_z_threshold
+# Prediction and residual scoring are imported from the passive comas package.
+# Series processing and service composition retain their existing runtime configuration.
 
 
 # =====================================================================
 # 2.5) PERSISTÊNCIA — exporta cada amostra para CSV (dataset offline)
 # =====================================================================
-class PredictionHistoryExporter:
-    """
-    Persistência incremental do histórico de predição — 1 CSV por série.
-
-    Propriedades garantidas:
-      - ADITIVA: chamada após o history.append(); nunca altera a lógica online.
-      - SINCRONIZADA: cada linha corresponde exatamente a uma amostra da série
-        (mesmo ts/observado/predito do deque e mesmo resíduo visto pelo detector).
-      - INCREMENTAL: append-only; header escrito uma única vez por arquivo.
-      - LEVE: file handles mantidos abertos em cache (1 open por série na vida
-        do processo) com flush a cada EXPORT_FLUSH_EVERY linhas.
-      - À PROVA DE FALHA: qualquer exceção de I/O é logada e a predição segue.
-
-    Nome do arquivo: flow:1:10.0.0.1->10.0.0.4  ->  flow_1_10.0.0.1_10.0.0.4.csv
-    """
-
-    HEADER = ["timestamp", "datetime_iso", "flow_key", "dpid", "src_ip", "dst_ip",
-              "observed_bps", "predicted_bps", "prediction_error", "absolute_error",
-              "residual", "z_score", "is_anomaly"]
-
-    def __init__(self, directory: str, prefixes: Tuple[str, ...] = ("flow:",),
-                 flush_every: int = 10, enabled: bool = True):
-        self.directory = directory
-        self.prefixes = prefixes
-        self.flush_every = max(1, flush_every)
-        self.enabled = enabled
-        self.records_written = 0
-        self._files: Dict[str, Any] = {}      # key -> file handle (cache)
-        self._pending: Dict[str, int] = {}    # key -> linhas desde o último flush
-        self._lock = threading.Lock()
-        if self.enabled:
-            try:
-                os.makedirs(self.directory, exist_ok=True)
-                logger.info(f"Exporter ativo: dir={self.directory} "
-                            f"prefixes={self.prefixes} flush_every={self.flush_every}")
-            except OSError as e:
-                logger.error(f"Exporter desabilitado (mkdir falhou): {e}")
-                self.enabled = False
-
-    @staticmethod
-    def _filename_for(key: str) -> str:
-        safe = key.replace("->", "_").replace(":", "_").replace("/", "_")
-        return f"{safe}.csv"
-
-    def record(self, key: str, meta: Dict[str, Any], ts: float,
-               observed_bps: float, predicted_bps: float, residual: float,
-               z_score: Optional[float], is_anomaly: bool) -> None:
-        """Persiste UMA amostra. z_score=None (warm-up) é gravado como vazio."""
-        if not self.enabled or not key.startswith(self.prefixes):
-            return
-        try:
-            err = observed_bps - predicted_bps
-            row = ",".join([
-                f"{ts:.3f}",
-                datetime.fromtimestamp(ts).isoformat(timespec="milliseconds"),
-                key,
-                str(meta.get("dpid", "")),
-                str(meta.get("nw_src", "")),
-                str(meta.get("nw_dst", "")),
-                f"{observed_bps:.1f}",
-                f"{predicted_bps:.1f}",
-                f"{err:.1f}",
-                f"{abs(err):.1f}",
-                f"{residual:.1f}",
-                ("" if z_score is None else f"{z_score:.4f}"),
-                str(is_anomaly),
-            ]) + "\n"
-
-            with self._lock:
-                fh = self._files.get(key)
-                if fh is None:
-                    path = os.path.join(self.directory, self._filename_for(key))
-                    write_header = not os.path.exists(path) or os.path.getsize(path) == 0
-                    fh = open(path, "a", buffering=8192)
-                    if write_header:
-                        fh.write(",".join(self.HEADER) + "\n")
-                    self._files[key] = fh
-                    self._pending[key] = 0
-                fh.write(row)
-                self._pending[key] += 1
-                self.records_written += 1
-                if self._pending[key] >= self.flush_every:
-                    fh.flush()
-                    self._pending[key] = 0
-        except Exception as e:
-            # I/O nunca pode derrubar o pipeline de predição
-            logger.error(f"Exporter: falha ao gravar amostra de {key}: {e}")
-
-    def status(self) -> Dict[str, Any]:
-        with self._lock:
-            n_disk = len(glob.glob(os.path.join(self.directory, "*.csv"))) \
-                     if self.enabled and os.path.isdir(self.directory) else 0
-            return {
-                "enabled": self.enabled,
-                "directory": self.directory,
-                "files": n_disk,
-                "series_active": len(self._files),
-                "records_written": self.records_written,
-                "prefixes": list(self.prefixes),
-                "flush_every": self.flush_every,
-            }
-
-    def close(self) -> None:
-        """Flush + close de todos os handles (registrado via atexit)."""
-        with self._lock:
-            for fh in self._files.values():
-                try:
-                    fh.flush()
-                    fh.close()
-                except Exception:
-                    pass
-            self._files.clear()
+# CSV persistence is implemented in comas.telemetry.history.
 
 
 # Instância única do módulo (None quando desabilitado)
@@ -576,6 +371,21 @@ _exporter: Optional[PredictionHistoryExporter] = (
 )
 if _exporter:
     atexit.register(_exporter.close)
+
+
+_qos_telemetry: Optional[QosTelemetryManager] = None
+if QOS_TELEMETRY_ENABLED:
+    _qos_capacities = PortCapacityRegistry.from_json(QOS_PORT_CAPACITIES_JSON)
+    _qos_telemetry = QosTelemetryManager(
+        cid=CONTROLLER_ID,
+        capacities=_qos_capacities,
+        max_gap_s=POLL_INTERVAL_S * QOS_MAX_GAP_FACTOR,
+        exporter=QosDatasetExporter(
+            QOS_DATASET_DIR,
+            flush_every=QOS_DATASET_FLUSH_EVERY,
+        ),
+    )
+    atexit.register(_qos_telemetry.close)
 
 
 # =====================================================================
@@ -620,6 +430,16 @@ class SeriesState:
             )
         self.history: deque = deque(maxlen=HISTORY_WINDOW)   # (ts, observado, predito)
 
+    def _record_unscored_sample(self, ts: float) -> None:
+        """Persist idle/priming samples without duplicating their CSV contract."""
+        self.history.append((ts, self.rate_bps, self.predicted_bps))
+        if _exporter:
+            _exporter.record(
+                self.key, self.meta, ts,
+                self.rate_bps, self.predicted_bps, 0.0,
+                None, False,
+            )
+
     def ingest(self, byte_count: int, ts: float) -> Optional[Dict[str, Any]]:
         """
         Pré-processamento + predição + detecção em um passo.
@@ -654,13 +474,7 @@ class SeriesState:
                 self.predictor.n = 0
             self.predicted_bps = 0.0
             self.model_residual = 0.0
-            self.history.append((ts, self.rate_bps, self.predicted_bps))
-            if _exporter:
-                _exporter.record(
-                    self.key, self.meta, ts,
-                    self.rate_bps, self.predicted_bps, 0.0,
-                    None, False,
-                )
+            self._record_unscored_sample(ts)
             return None
         self.idle_samples = 0
 
@@ -673,26 +487,14 @@ class SeriesState:
                 and self.rate_bps < MIN_RATE_BPS):
             self.predicted_bps = 0.0
             self.model_residual = 0.0
-            self.history.append((ts, self.rate_bps, self.predicted_bps))
-            if _exporter:
-                _exporter.record(
-                    self.key, self.meta, ts,
-                    self.rate_bps, self.predicted_bps, 0.0,
-                    None, False,
-                )
+            self._record_unscored_sample(ts)
             return None
 
         if (self.detection_mode == "offline"
                 and self.predictor.n < self.series_priming_samples):
             self.predicted_bps = self.rate_bps
             self.predictor.update(self.rate_bps)
-            self.history.append((ts, self.rate_bps, self.predicted_bps))
-            if _exporter:
-                _exporter.record(
-                    self.key, self.meta, ts,
-                    self.rate_bps, self.predicted_bps, 0.0,
-                    None, False,
-                )
+            self._record_unscored_sample(ts)
             return None
 
         # --- Predição feita ANTES do update (predição genuína de 1 passo à frente) ---
@@ -789,7 +591,8 @@ class Collector:
 
     def _collect_once(self):
         dpids = self._get("/stats/switches") or []
-        ts = time.time()
+        collection_ns = time.time_ns()
+        ts = collection_ns / 1e9
 
         for dpid in dpids:
             # ---- Portas (visão agregada por enlace) ----
@@ -798,10 +601,29 @@ class Collector:
                 port_no = p.get("port_no")
                 if port_no in (None, "LOCAL", 65534):
                     continue
+                port_no = int(port_no)
                 key = f"port:{dpid}:{port_no}"
                 meta = {"type": "port", "dpid": dpid, "port_no": port_no}
-                total = int(p.get("rx_bytes", 0)) + int(p.get("tx_bytes", 0))
+                rx_bytes = int(p.get("rx_bytes", 0))
+                tx_bytes = int(p.get("tx_bytes", 0))
+                total = rx_bytes + tx_bytes
                 self.engine.ingest(key, meta, total, ts)
+                if _qos_telemetry is not None:
+                    try:
+                        _qos_telemetry.ingest(
+                            dpid=dpid,
+                            port_no=port_no,
+                            rx_bytes=rx_bytes,
+                            tx_bytes=tx_bytes,
+                            ts_ns=collection_ns,
+                        )
+                    except Exception as exc:
+                        # O dataset preditivo é observacional e nunca pode
+                        # interromper o detector/mitigador DDoS existente.
+                        logger.error(
+                            "Falha isolada na telemetria QoS para %s: %s",
+                            key, exc,
+                        )
 
             # ---- Fluxos IPv4 (visão fina src->dst; base da mitigação) ----
             fstats = self._get(f"/stats/flow/{dpid}") or {}
@@ -1211,6 +1033,7 @@ class AgenticShadowManager:
                 "score": row.get("score"),
                 "confirming_domains": list(row.get("confirming_domains", [])),
                 "evaluated_ns": row.get("evaluated_ns"),
+                "published_ns": row.get("published_ns"),
                 "window_ids": list(row.get("window_ids", [])),
             } for row in candidates]
         if not legacy_rows:
@@ -1806,6 +1629,9 @@ class CollaborativeDecisionManager:
                         }
 
             with self.lock:
+                # evaluated_ns marca o início da avaliação. published_ns marca
+                # quando o resultado passou a estar visível aos comparadores.
+                decision["published_ns"] = now_ns()
                 previous_state = self.last_logged_state.get(flow)
                 self.decisions[flow] = decision
                 decision_key = (
@@ -2377,6 +2203,11 @@ def status():
                 "agentic_mode": AGENTIC_MODE,
                 "agentic_active": engine.agentic is not None,
                 "agentic_live_actuation_opt_in": AGENTIC_LIVE_ACTUATION,
+                "qos_telemetry_enabled": QOS_TELEMETRY_ENABLED,
+                "qos_configured_ports": (
+                    0 if _qos_telemetry is None
+                    else _qos_telemetry.status()["configured_ports"]
+                ),
             },
         }), 200
 
@@ -2450,6 +2281,19 @@ def export_status():
         return jsonify({"enabled": False, "directory": EXPORT_DIR,
                         "files": 0, "records_written": 0}), 200
     return jsonify(_exporter.status()), 200
+
+
+@app.route("/predictor/qos", methods=["GET"])
+def qos_status():
+    """Estado somente leitura da coleta do dataset de utilização."""
+    if _qos_telemetry is None:
+        return jsonify({
+            "enabled": False,
+            "directory": QOS_DATASET_DIR,
+            "configured_ports": 0,
+            "latest": [],
+        }), 200
+    return jsonify(_qos_telemetry.status()), 200
 
 
 @app.route("/predictor/feedback", methods=["POST"])

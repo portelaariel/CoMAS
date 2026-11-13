@@ -25,6 +25,11 @@ A primeira mudança concluiu a etapa 1. A primeira extração da etapa 2 moveu
 `HoltPredictor` e `ResidualAnomalyDetector` para `comas/forecasting/` e
 `comas/detection/`, mantendo seus nomes públicos no runtime. Há traces de
 regressão da referência, testes dos imports passivos e do layout de cópia Docker.
+A extração seguinte moveu o exportador CSV para `comas/telemetry/`, reuniu os
+três registros de amostras sem pontuação em um método e acrescentou cache para
+janelas MAD estáveis. A API e os bytes dos CSVs foram comparados entre imagens
+Docker, com relógio e identidades controlados. O build e o smoke test da imagem
+também passaram a ter um job próprio na CI, avançando parte da etapa 5.
 Configuração, coleta, séries, coordenação e API continuam no serviço; as demais
 extrações exigem evidências próprias.
 
@@ -44,8 +49,9 @@ docs/            navegação, arquitetura e operação
 tests/           testes organizados pelas mesmas responsabilidades
 ```
 
-Somente `comas/forecasting/` e `comas/detection/` foram criados nesta primeira
-extração. A raiz de pacote `comas/` mantém os imports e o build existentes;
+`comas/forecasting/`, `comas/detection/` e `comas/telemetry/` já existem; telemetria
+contém o exportador, enquanto o coletor continua no runtime. A raiz de pacote
+`comas/` mantém os imports e o build existentes;
 uma eventual mudança para `src/comas/` fica vinculada ao empacotamento da etapa
 5, junto de seus testes de instalação. As demais pastas da árvore são propostas,
 não uma lista de movimentações a executar de uma vez.

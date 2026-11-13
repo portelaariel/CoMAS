@@ -54,7 +54,14 @@ bash scripts/validate_repository.sh
 A verificação usa testes e simulações locais; não inicia Docker nem Mininet.
 A suíte completa inclui reprodução de fixtures congeladas e pode levar cerca
 de vinte minutos ou mais, conforme a máquina. O workflow do GitHub reserva até
-sessenta minutos para concluí-la.
+sessenta minutos para concluí-la. Um segundo job constrói a imagem e verifica a
+API e os CSVs em um container sem rede. Para executar essa verificação localmente,
+com Docker disponível:
+
+```bash
+docker build --tag comas-runtime-check --file Dockerfile.flow_predictor .
+bash scripts/test_runtime_image.sh comas-runtime-check
+```
 
 Para consultar a CLI de auditoria:
 
@@ -72,6 +79,7 @@ rede.
 | --- | --- |
 | `flow_predictor_cnsm.py` | Composição atual do serviço: coleta, detecção, coordenação e API. |
 | `comas/forecasting/`, `comas/detection/` | Primitivas de previsão Holt de tráfego e detecção por resíduos, importáveis sem iniciar o serviço. |
+| `comas/telemetry/` | Persistência do histórico de previsão em CSV, com construção explícita do exportador. |
 | `agent_protocol.py`, `domain_agent.py`, `agent_authority.py` | Propostas, deliberação, autorização e claim. |
 | `offline_model.py`, `qos_*.py`, `sla_*.py` | Contratos de modelos, previsão, telemetria e avaliação de risco. |
 | `predictive_sla_*.py`, `train_*.py`, `backtest_sla_risk.py` | Entradas de treinamento, campanhas e análises de pesquisa. |

@@ -1,6 +1,7 @@
 """Robust residual scoring, independent from telemetry and service startup."""
 
 from collections import deque
+from operator import is_
 from typing import Optional, Tuple
 
 
@@ -29,6 +30,8 @@ class ResidualAnomalyDetector:
         self.fixed_center = fixed_center
         self.fixed_scale = fixed_scale
         self.online_adaptation = online_adaptation
+        self._stable_baseline = None
+        self._previous_tail = object()
 
     @property
     def offline_calibrated(self) -> bool:
@@ -45,10 +48,32 @@ class ResidualAnomalyDetector:
         if use_offline:
             return float(self.fixed_center), max(float(self.fixed_scale), 1e-6)
 
+        cached = self._stable_baseline
+        if cached is not None:
+            window, factor, baseline = cached
+            # Immutable inputs and exact object identities also detect edits
+            # through the public deque, including equal-valued replacements.
+            if (self.MAD_K is factor and len(window) == len(self.residuals)
+                    and all(map(is_, window, self.residuals))):
+                return baseline
+            self._stable_baseline = None
+
         data = sorted(self.residuals)
         median = data[len(data) // 2]
         mad = sorted(abs(x - median) for x in data)[len(data) // 2]
-        return median, max(self.MAD_K * mad, 1e-6)
+        baseline = median, max(self.MAD_K * mad, 1e-6)
+        tail = self.residuals[-1]
+        # A new tail is the normal streaming path: avoid allocating a snapshot.
+        # A repeated tail can signal rejected samples. Recompute once, then
+        # retain the complete window for safe reuse on subsequent calls.
+        if tail is self._previous_tail:
+            window = tuple(self.residuals)
+            factor = self.MAD_K
+            if (type(factor) in (int, float)
+                    and all(type(value) in (int, float) for value in window)):
+                self._stable_baseline = window, factor, baseline
+        self._previous_tail = tail
+        return baseline
 
     def score(self, residual: float) -> Tuple[float, bool]:
         """Retorna (z_score, is_anomaly) usando calibração offline ou warmup."""

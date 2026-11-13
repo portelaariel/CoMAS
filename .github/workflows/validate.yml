@@ -34,3 +34,20 @@ jobs:
 
       - name: Validate repository
         run: bash scripts/validate_repository.sh
+
+  runtime-image:
+    name: Runtime image and API smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build runtime image
+        run: docker build --tag comas-runtime-ci --file Dockerfile.flow_predictor .
+
+      - name: Validate packaged API and CSV output without network access
+        run: bash scripts/test_runtime_image.sh comas-runtime-ci

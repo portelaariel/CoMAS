@@ -82,10 +82,54 @@ teste monta o layout declarado pelos comandos COPY do Dockerfile e verifica
 os imports em um processo sem dependências do serviço.
 
 Esses testes são regressões de comportamento, não validação independente do
-método ou um build real de imagem Docker. O caminho multi-horizonte de SLA e os
-seus protocolos permanecem nos módulos anteriores. A fonte integral do runtime
+método. A verificação adicional da imagem real está descrita abaixo. O caminho
+multi-horizonte de SLA e seus protocolos permanecem nos módulos anteriores. A fonte integral do runtime
 antigo continua disponível pela tag da referência; o inventário não é refeito
 para apresentar os arquivos novos como se fossem os originais.
+
+## Histórico CSV, cache de resíduos e imagem real
+
+O exportador foi extraído para `comas.telemetry` com o corpo da classe original
+preservado. O registro repetido de inatividade e priming foi reunido em um método
+de `SeriesState`, mantendo a ordem histórico → CSV e os campos sem pontuação.
+Testes cobrem formato, anexação, falhas de I/O e opções alteradas pela API.
+
+A otimização do detector evita ordenar novamente uma janela MAD estável. A
+sequência de pontuação continua a mesma; testes adicionais comparam edições
+externas da janela, troca de fator, adaptação, calibração fixa e subclasses.
+As fixtures da referência não foram regeneradas.
+
+Foram construídas localmente a imagem da primeira extração (`335442f`) e a
+imagem com histórico/cache refatorados, usando a mesma base Python 3.9 e o mesmo
+smoke test. Relógio e UUIDs foram fixados, e o fuso foi UTC. Para o cenário de
+dois fluxos, com priming, anomalia, supressão repetida, inatividade e mudança de
+configuração, as respostas de seis endpoints e os dois CSVs ficaram idênticos.
+O SHA256 do payload comparado foi
+`c2fa6354a8a0a1dda886ad06648d1dd3169bd9b67f9bf0f2444c138b5f637094`.
+Esse hash documenta a comparação local na mesma plataforma; não é imposto como
+resultado universal entre arquiteturas.
+
+O procedimento atual pode ser executado com:
+
+```bash
+docker build --tag comas-runtime-check --file Dockerfile.flow_predictor .
+bash scripts/test_runtime_image.sh comas-runtime-check
+```
+
+O script usa o serviço real via cliente de testes Flask em um container sem
+rede, com raiz somente leitura e arquivos temporários em memória. Não inicia
+o coletor. Isso verifica empacotamento, API e persistência controlada; não testa
+o plano de dados do laboratório nem substitui uma campanha de rede. A CI também
+constrói e verifica essa imagem em um job separado.
+
+`experiments/benchmark_residual_scoring.py` compara o detector atual com uma
+referência Git explícita e verifica saídas antes de medir. Uma execução local
+Python 3.9/ARM64, com janela 120 e mediana de cinco repetições de 30 mil chamadas,
+mediu aproximadamente 5,5× no caso de anomalias rejeitadas consecutivas e 3,3×
+para resíduos normais constantes. Resíduos variáveis e calibração fixa ficaram
+próximos do original (razões de tempo de aproximadamente 1,00 e 0,97). Esses
+resultados descrevem os casos do microbenchmark, sujeitos a ruído de medição;
+não são ganhos de latência global, de inferência LLM ou de qualidade de detecção.
 
 ## Critérios para extrair módulos no futuro
 

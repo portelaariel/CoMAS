@@ -14,6 +14,7 @@ import unittest
 
 from comas.detection import ResidualAnomalyDetector
 from comas.forecasting import HoltPredictor
+from comas.telemetry import PredictionHistoryExporter
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,13 +91,14 @@ class RuntimePrimitiveTests(unittest.TestCase):
 
     def test_runtime_exposes_the_same_public_class_names(self):
         tree = ast.parse((ROOT / 'flow_predictor_cnsm.py').read_text())
-        names = {'HoltPredictor', 'ResidualAnomalyDetector'}
+        names = {'HoltPredictor', 'ResidualAnomalyDetector', 'PredictionHistoryExporter'}
         selected = [node for node in tree.body if isinstance(node, ast.ImportFrom)
                     and any(alias.name in names for alias in node.names)]
         namespace = {}
         exec(compile(ast.Module(body=selected, type_ignores=[]), 'runtime-exports', 'exec'), namespace)
         self.assertIs(namespace['HoltPredictor'], HoltPredictor)
         self.assertIs(namespace['ResidualAnomalyDetector'], ResidualAnomalyDetector)
+        self.assertIs(namespace['PredictionHistoryExporter'], PredictionHistoryExporter)
 
     def test_docker_copy_layout_supports_passive_imports_without_service_dependencies(self):
         dockerfile = (ROOT / 'Dockerfile.flow_predictor').read_text().replace('\\\n', ' ')
@@ -132,10 +134,12 @@ builtins.__import__ = guarded_import
 before = list(threading.enumerate())
 from comas.forecasting import HoltPredictor
 from comas.detection import ResidualAnomalyDetector
+from comas.telemetry import PredictionHistoryExporter
 p = HoltPredictor(alpha=0.5, beta=0.5)
 p.update(10.0)
 p.update(14.0)
 d = ResidualAnomalyDetector(5, 4.0, 0, fixed_center=0.0, fixed_scale=1.0)
+exporter = PredictionHistoryExporter("unused-history", enabled=False)
 assert threading.enumerate() == before
 assert not blocked.intersection(sys.modules)
 print(json.dumps({"prediction": p.predict(), "score": d.score(5.0)}))
@@ -150,6 +154,7 @@ print(json.dumps({"prediction": p.predict(), "score": d.score(5.0)}))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {'prediction': 13.0, 'score': [5.0, True]})
             self.assertFalse((image_root / 'prediction_history').exists())
+            self.assertFalse((image_root / 'unused-history').exists())
 
 
 if __name__ == '__main__':

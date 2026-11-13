@@ -25,6 +25,16 @@ required_files=(
   config/runtime.env
   Dockerfile.flow_predictor
   flow_predictor_cnsm.py
+  comas/__init__.py
+  comas/forecasting/__init__.py
+  comas/forecasting/holt.py
+  comas/detection/__init__.py
+  comas/detection/residual.py
+  comas/telemetry/__init__.py
+  comas/telemetry/history.py
+  scripts/test_runtime_image.sh
+  tests/runtime_image_smoke.py
+  experiments/benchmark_residual_scoring.py
   agent_protocol.py
   domain_agent.py
   agent_authority.py
@@ -148,6 +158,7 @@ expect_invalid_input() {
 }
 
 expect_invalid_input bash deploy_flow_predictor.sh 0 true
+expect_invalid_input bash scripts/test_runtime_image.sh
 expect_invalid_input bash deploy_flow_predictor.sh 2 invalid
 expect_invalid_input env PREDICTOR_COLLABORATION_ENABLED=true \
   PREDICTOR_COLLAB_MIN_DOMAINS=3 bash deploy_flow_predictor.sh 2 true
